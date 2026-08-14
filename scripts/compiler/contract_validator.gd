@@ -3,9 +3,13 @@ extends RefCounted
 
 const ROOT_KEYS := ["regions", "networks", "entities", "distributions"]
 const ANCHORS := ["north", "south", "east", "west", "center", "northwest", "northeast", "southwest", "southeast", "whole"]
+const SPATIAL_SELECTOR_ANCHORS := ["north", "south", "east", "west", "center", "northwest", "northeast", "southwest", "southeast"]
 const DIRECTIONS := ["north", "south", "east", "west", "northwest", "northeast", "southwest", "southeast"]
 const RELATIONS := ["inside", "near", "far_from", "along", "direction_of"]
+const REGION_TYPES := ["town", "village", "forest", "coast", "graveyard", "district", "field", "swamp"]
 const NETWORK_TYPES := ["road", "path"]
+const ENTITY_TYPES := ["church", "lighthouse", "tower", "bridge", "radio_tower", "gas_station"]
+const DISTRIBUTION_TYPES := ["house", "tree", "tombstone", "lamp"]
 const DENSITIES := ["low", "medium", "high"]
 const ARRANGEMENTS := ["uniform", "random", "clustered"]
 const SELECTOR_TYPES := ["anchor", "near", "far_from", "direction_of"]
@@ -129,8 +133,8 @@ func _index_collection(items: Array, kind: String, root_name: String, id_kinds: 
             errors.append("%s[%d] must be an object" % [root_name, index])
             continue
         var item: Dictionary = value
-        if typeof(item.get("id")) != TYPE_STRING:
-            errors.append("%s[%d].id must be a string" % [root_name, index])
+        if typeof(item.get("id")) != TYPE_STRING or String(item.get("id", "")).strip_edges().is_empty():
+            errors.append("%s[%d].id must be a non-empty string" % [root_name, index])
             continue
         var object_id := String(item.get("id", ""))
         if id_kinds.has(object_id):
@@ -144,8 +148,8 @@ func _validate_region(value: Variant, path: String, id_kinds: Dictionary, errors
         return
     var item: Dictionary = value
     _exact_keys_subset(item, ["id", "type", "placement"], ["id", "type"], path, errors)
-    _validate_string_field(item, "id", path, errors)
-    _validate_string_field(item, "type", path, errors)
+    _validate_nonempty_string(item.get("id"), path + ".id", errors)
+    _validate_catalog_type(item.get("type"), REGION_TYPES, path + ".type", "Region", errors)
     if item.has("placement"):
         _validate_placement(item["placement"], "region", path + ".placement", id_kinds, errors)
 
@@ -154,8 +158,8 @@ func _validate_entity(value: Variant, path: String, id_kinds: Dictionary, errors
         return
     var item: Dictionary = value
     _exact_keys_subset(item, ["id", "type", "placement"], ["id", "type"], path, errors)
-    _validate_string_field(item, "id", path, errors)
-    _validate_string_field(item, "type", path, errors)
+    _validate_nonempty_string(item.get("id"), path + ".id", errors)
+    _validate_catalog_type(item.get("type"), ENTITY_TYPES, path + ".type", "Entity", errors)
     if item.has("placement"):
         _validate_placement(item["placement"], "entity", path + ".placement", id_kinds, errors)
 
@@ -164,9 +168,8 @@ func _validate_network(value: Variant, path: String, id_kinds: Dictionary, error
         return
     var item: Dictionary = value
     _exact_keys_subset(item, ["id", "type", "topology", "placement"], ["id", "type", "topology"], path, errors)
-    _validate_string_field(item, "id", path, errors)
-    if typeof(item.get("type")) != TYPE_STRING or not (String(item.get("type", "")) in NETWORK_TYPES):
-        errors.append("%s.type must be 'road' or 'path'" % path)
+    _validate_nonempty_string(item.get("id"), path + ".id", errors)
+    _validate_catalog_type(item.get("type"), NETWORK_TYPES, path + ".type", "Network", errors)
     _validate_topology(item.get("topology"), path + ".topology", id_kinds, errors)
     if item.has("placement"):
         _validate_placement(item["placement"], "network", path + ".placement", id_kinds, errors)
@@ -176,8 +179,8 @@ func _validate_distribution(value: Variant, path: String, id_kinds: Dictionary, 
         return
     var item: Dictionary = value
     _exact_keys_subset(item, ["id", "type", "placement", "population"], ["id", "type"], path, errors)
-    _validate_string_field(item, "id", path, errors)
-    _validate_string_field(item, "type", path, errors)
+    _validate_nonempty_string(item.get("id"), path + ".id", errors)
+    _validate_catalog_type(item.get("type"), DISTRIBUTION_TYPES, path + ".type", "Distribution", errors)
     if item.has("placement"):
         _validate_placement(item["placement"], "distribution", path + ".placement", id_kinds, errors)
     if item.has("population"):
@@ -334,8 +337,8 @@ func _validate_selector(value: Variant, path: String, id_kinds: Dictionary, erro
     var kind := String(selector.get("type", ""))
     if kind == "anchor":
         _exact_keys(selector, ["type", "value"], path, errors)
-        if typeof(selector.get("value")) != TYPE_STRING or not (String(selector.get("value", "")) in ANCHORS):
-            errors.append("%s.value is not a valid anchor" % path)
+        if typeof(selector.get("value")) != TYPE_STRING or not (String(selector.get("value", "")) in SPATIAL_SELECTOR_ANCHORS):
+            errors.append("%s.value is not a valid SpatialSelector anchor" % path)
         return
     var allowed_keys: Array = ["type", "target", "direction"] if kind == "direction_of" else ["type", "target"]
     _exact_keys(selector, allowed_keys, path, errors)
@@ -477,9 +480,9 @@ func _is_nonnegative_json_integer(value: Variant) -> bool:
         return is_finite(number) and number >= 0.0 and number == floor(number)
     return false
 
-func _validate_string_field(item: Dictionary, field_name: String, path: String, errors: PackedStringArray) -> void:
-    if typeof(item.get(field_name)) != TYPE_STRING:
-        errors.append("%s.%s must be a string" % [path, field_name])
+func _validate_catalog_type(value: Variant, allowed: Array, path: String, kind: String, errors: PackedStringArray) -> void:
+    if typeof(value) != TYPE_STRING or not (String(value) in allowed):
+        errors.append("%s must be a World Catalog V1 %s type" % [path, kind])
 
 func _validate_nonempty_string(value: Variant, path: String, errors: PackedStringArray) -> void:
     if typeof(value) != TYPE_STRING or String(value).strip_edges().is_empty():

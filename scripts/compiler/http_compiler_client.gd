@@ -1,6 +1,11 @@
 class_name HttpCompilerClient
 extends CompilerClient
 
+const WORLD_IR_VERSION := "2"
+const WORLD_CATALOG_VERSION := "1"
+const RUNTIME_CONTEXT_VERSION := "1"
+const COMPILE_RESULT_VERSION := "1"
+
 @export var base_url: String = "http://127.0.0.1:8787"
 @export var timeout_seconds: float = 120.0
 
@@ -79,11 +84,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
             _phase = "idle"
             readiness_changed.emit(false, "Failed to start /info request: %s" % error_string(err))
     elif phase == "info":
-        var compatible := (
-            String(response.get("world_ir_version", "")) == "2"
-            and String(response.get("runtime_context_version", "")) == "1"
-            and String(response.get("compile_result_version", "")) == "1"
-        )
+        var compatible := _is_info_compatible(response)
         readiness_changed.emit(compatible, "Server protocol compatible" if compatible else "Protocol version mismatch")
     elif phase == "compile":
         if validate_result_or_emit(response, _pending_runtime_context):
@@ -94,3 +95,11 @@ func _emit_failure(phase: String, message: String) -> void:
         readiness_changed.emit(false, message)
     else:
         compiler_error.emit(message)
+
+func _is_info_compatible(info: Dictionary) -> bool:
+    return (
+        String(info.get("world_ir_version", "")) == WORLD_IR_VERSION
+        and String(info.get("world_catalog_version", "")) == WORLD_CATALOG_VERSION
+        and String(info.get("runtime_context_version", "")) == RUNTIME_CONTEXT_VERSION
+        and String(info.get("compile_result_version", "")) == COMPILE_RESULT_VERSION
+    )

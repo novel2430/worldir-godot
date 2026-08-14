@@ -63,8 +63,106 @@ func _init() -> void:
     fractional_count["distributions"][0]["population"]["amount"]["value"] = 12.5
     _expect_invalid("fractional count", validator.validate_world_ir(fractional_count))
 
+    _test_catalog_v1_types(validator)
+    _test_id_and_anchor_contract(validator)
+    _test_http_info_versions()
+
     print("WorldIR contract validation tests passed")
     quit(0)
+
+func _test_catalog_v1_types(validator: ContractValidator) -> void:
+    var catalog_world := {
+        "regions": [
+            {"id": "r_town", "type": "town"},
+            {"id": "r_village", "type": "village"},
+            {"id": "r_forest", "type": "forest"},
+            {"id": "r_coast", "type": "coast"},
+            {"id": "r_graveyard", "type": "graveyard"},
+            {"id": "r_district", "type": "district"},
+            {"id": "r_field", "type": "field"},
+            {"id": "r_swamp", "type": "swamp"},
+        ],
+        "networks": [
+            {"id": "n_road", "type": "road", "topology": {"from": "south", "to": "north"}},
+            {"id": "n_path", "type": "path", "topology": {"from": "west", "to": "east"}},
+        ],
+        "entities": [
+            {"id": "e_church", "type": "church"},
+            {"id": "e_lighthouse", "type": "lighthouse"},
+            {"id": "e_tower", "type": "tower"},
+            {"id": "e_bridge", "type": "bridge"},
+            {"id": "e_radio", "type": "radio_tower"},
+            {"id": "e_gas", "type": "gas_station"},
+        ],
+        "distributions": [
+            {"id": "d_house", "type": "house"},
+            {"id": "d_tree", "type": "tree"},
+            {"id": "d_tombstone", "type": "tombstone"},
+            {"id": "d_lamp", "type": "lamp"},
+        ],
+    }
+    _expect_valid("all World Catalog V1 types", validator.validate_world_ir(catalog_world))
+
+    var unknown_type: Dictionary = catalog_world.duplicate(true)
+    unknown_type["entities"][0]["type"] = "castle"
+    _expect_invalid("non-Catalog type", validator.validate_world_ir(unknown_type))
+
+func _test_id_and_anchor_contract(validator: ContractValidator) -> void:
+    var blank_id := _empty_world()
+    blank_id["regions"].append({"id": "   ", "type": "forest"})
+    _expect_invalid("blank World IR id", validator.validate_world_ir(blank_id))
+
+    var whole_placement := _empty_world()
+    whole_placement["regions"].append({
+        "id": "forest",
+        "type": "forest",
+        "placement": {"anchor": "whole"},
+    })
+    _expect_valid("placement anchor whole", validator.validate_world_ir(whole_placement))
+
+    var whole_selector := _empty_world()
+    whole_selector["regions"].append({"id": "forest", "type": "forest"})
+    whole_selector["distributions"].append({
+        "id": "trees",
+        "type": "tree",
+        "population": {
+            "density_profile": {
+                "type": "gradient",
+                "from": {"selector": {"type": "anchor", "value": "whole"}, "density": "low"},
+                "to": {"selector": {"type": "anchor", "value": "west"}, "density": "high"},
+            },
+        },
+    })
+    _expect_invalid("density selector anchor whole", validator.validate_world_ir(whole_selector))
+
+func _test_http_info_versions() -> void:
+    var client := HttpCompilerClient.new()
+    var compatible_info := {
+        "world_ir_version": "2",
+        "world_catalog_version": "1",
+        "runtime_context_version": "1",
+        "compile_result_version": "1",
+    }
+    _expect_true("matching /info versions", client._is_info_compatible(compatible_info))
+    var catalog_mismatch: Dictionary = compatible_info.duplicate(true)
+    catalog_mismatch["world_catalog_version"] = "2"
+    _expect_true("world catalog mismatch rejected", not client._is_info_compatible(catalog_mismatch))
+    var readiness: Dictionary = {}
+    client.readiness_changed.connect(func(ready: bool, detail: String) -> void:
+        readiness["ready"] = ready
+        readiness["detail"] = detail
+    )
+    client._phase = "info"
+    client._on_request_completed(
+        HTTPRequest.RESULT_SUCCESS,
+        200,
+        PackedStringArray(),
+        JSON.stringify(catalog_mismatch).to_utf8_buffer()
+    )
+    _expect_true("catalog mismatch emits not-ready", readiness.get("ready") == false)
+    _expect_true("catalog mismatch emits protocol mismatch", readiness.get("detail") == "Protocol version mismatch")
+    _expect_true("catalog mismatch returns client to idle", client._phase == "idle")
+    client.free()
 
 func _expect_valid(label: String, errors: PackedStringArray) -> void:
     if errors.is_empty():
@@ -77,6 +175,15 @@ func _expect_invalid(label: String, errors: PackedStringArray) -> void:
         return
     printerr("FAILED [%s]: expected validation errors, got none" % label)
     quit(1)
+
+func _expect_true(label: String, condition: bool) -> void:
+    if condition:
+        return
+    printerr("FAILED [%s]" % label)
+    quit(1)
+
+func _empty_world() -> Dictionary:
+    return {"regions": [], "networks": [], "entities": [], "distributions": []}
 
 func _load_json(path: String) -> Dictionary:
     var file := FileAccess.open(path, FileAccess.READ)

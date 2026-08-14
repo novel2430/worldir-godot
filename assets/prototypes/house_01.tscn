@@ -20,6 +20,8 @@ prototype_id = "house_01"
 semantic_type = "house"
 placement_radius = 5.8
 clearance = 1.5
+population_spacing = 4.0
+population_occupancy_scale = 0.6
 [node name="Body" type="MeshInstance3D" parent="."]
 position = Vector3(0, 2.25, 0)
 mesh = SubResource("HouseMesh")

@@ -2357,7 +2357,7 @@ Commit
 
 1. **World IR V2 只有四种 Primitive。**
 2. **未知字段、未知 Relation、未知 enum 一律非法。**
-3. **Region / Entity / Distribution 的 `type` 是开放 semantic string；Network.type 只有 road/path。**
+3. **所有 `type` 字段在 JSON 中仍是 string，但语义值必须属于 World Catalog V1；Godot Prototype capability 是独立的后端检查。**
 4. **Placement 的 absolute anchor 与 object-relative relation 必须分清。**
 5. **所有 World IR 引用使用跨四类 Primitive 的 global ID namespace。**
 6. **Distribution 的 amount / arrangement / density_profile 是独立 semantic axis。**

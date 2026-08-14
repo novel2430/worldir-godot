@@ -15,6 +15,8 @@ prototype_id = "tombstone_01"
 semantic_type = "tombstone"
 placement_radius = 0.55
 clearance = 0.25
+population_spacing = 4.0
+population_occupancy_scale = 0.5
 [node name="Mesh" type="MeshInstance3D" parent="."]
 position = Vector3(0, 0.8, 0)
 mesh = SubResource("Mesh")

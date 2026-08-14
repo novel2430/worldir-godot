@@ -24,6 +24,8 @@ prototype_id = "tree_01"
 semantic_type = "tree"
 placement_radius = 1.25
 clearance = 0.3
+population_spacing = 4.0
+population_occupancy_scale = 0.7
 [node name="Trunk" type="MeshInstance3D" parent="."]
 position = Vector3(0, 1.5, 0)
 mesh = SubResource("Trunk")

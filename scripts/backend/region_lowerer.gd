@@ -10,7 +10,7 @@ const EDGE_SEGMENTS: int = 9
 const REGION_NOISE_RATIO: float = 0.075
 const REGION_NOISE_MIN_M: float = 2.0
 const REGION_NOISE_MAX_M: float = 7.0
-const LARGE_SCALE_TYPES: Array[String] = ["forest", "coast", "desert", "swamp", "field"]
+const LARGE_SCALE_TYPES: Array[String] = ["forest", "coast", "swamp", "field"]
 
 var binding_resolver = RuntimeBindingResolverScript.new()
 var last_error: String = ""
@@ -229,7 +229,7 @@ func _direction_zone_rect(target: String, direction: String, solver: PlacementSo
 
 func _region_size_prior(semantic_type: String, world_size: Vector2) -> Vector2:
     match semantic_type:
-        "forest", "coast", "desert", "swamp", "field":
+        "forest", "coast", "swamp", "field":
             return Vector2(world_size.x * 0.38, world_size.y * 0.82)
         "town":
             return Vector2(world_size.x * 0.30, world_size.y * 0.38)

@@ -46,7 +46,9 @@ For a real tree:
 3. Instance the GLB scene as a child, add/adjust collision.
 4. Attach `scripts/prototype/world_prototype.gd` to the root.
 5. Set `prototype_id`, `semantic_type="tree"`, `placement_radius`, `clearance`.
-6. Add the prototype path and semantic mapping in `scripts/prototype/prototype_catalog.gd`.
+6. Tune the optional population metadata: `population_spacing` controls visual density and
+   `population_occupancy_scale` keeps only a core collision footprint as a hard exclusion.
+7. Add the prototype path and semantic mapping in `scripts/prototype/prototype_catalog.gd`.
 
 No placement/backend/runtime code needs to change.
 
@@ -59,11 +61,11 @@ Implemented:
 - Region anchor lowering to concrete polygons.
 - Procedural road/path lowering to deterministic polyline/ribbon geometry.
 - Prototype-aware Entity placement.
-- Distribution `count` / qualitative `density` / `density_profile.gradient` weighted lowering.
+- Distribution `count` / TSCN-footprint and usable-area-scaled qualitative `density` / `density_profile.gradient` weighted lowering.
 - `inside`, `near`, `far_from`, `along`, `direction_of` placement operators.
 - `random`, `uniform`, `clustered` arrangement.
 - Runtime Binding `at` / `inside` / `near` lowering through Godot-local spatial payloads.
-- Backend capability rejection when an open semantic type has no Godot TSCN prototype (candidate world is not committed).
+- Backend capability rejection when a valid World Catalog V1 type has no Godot TSCN prototype (candidate world is not committed).
 - Candidate scene construction before state commit.
 - Fake compiler + HTTP compiler boundary.
 - Playable first-person controller and collision.

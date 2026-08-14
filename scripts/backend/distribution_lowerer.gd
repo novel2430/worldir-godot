@@ -3,8 +3,12 @@ extends RefCounted
 
 const RuntimeBindingResolverScript = preload("res://scripts/backend/runtime_binding_resolver.gd")
 
-const DENSITY_COUNTS := {"low": 24, "medium": 52, "high": 90}
-const UNSPECIFIED_COUNT := 12
+const DEFAULT_POPULATION_BUDGET := 12
+const USABLE_AREA_GRID_SIZE := 36
+const RANDOM_PACKING_LOSS := 1.2
+const DENSITY_SPACING_MULTIPLIERS := {"low": 1.6, "medium": 1.0, "high": 0.45}
+const POPULATION_CAPS := {"tree": 200, "house": 60, "tombstone": 150, "lamp": 100}
+const DEFAULT_POPULATION_CAP := 100
 const DENSITY_WEIGHTS := {"low": 0.20, "medium": 0.55, "high": 1.0}
 const WEIGHTED_ATTEMPTS := 24
 
@@ -28,10 +32,14 @@ func lower(
 		return null
 
 	var meta := catalog.get_metadata(prototype_id)
-	var radius := float(meta.get("placement_radius", 1.0)) + float(meta.get("clearance", 0.0))
+	var radius := float(meta.get(
+		"population_occupancy_radius",
+		float(meta.get("placement_radius", 1.0)) + float(meta.get("clearance", 0.0))
+	))
+	var visual_footprint: Vector2 = meta.get("population_footprint", Vector2.ONE * radius * 2.0)
+	var visual_radius := visual_footprint.length() * 0.5
 	var population: Dictionary = item.get("population", {})
 	var amount: Dictionary = population.get("amount", {})
-	var count := _resolve_count(amount)
 	var density_profile: Dictionary = population.get("density_profile", {})
 	var placement: Dictionary = item.get("placement", {})
 	var relations: Array = placement.get("relations", [])
@@ -47,6 +55,10 @@ func lower(
 	if not domain.has_area():
 		last_error = "Placement failed for Distribution '%s': placement constraints have no overlapping spatial domain" % out.id
 		return null
+	var count := _resolve_count(amount, out.semantic_type, meta, radius, placement, context, solver, domain)
+	if count < 0:
+		last_error = "Placement failed for Distribution '%s': density placement has no usable area" % out.id
+		return null
 
 	# Keep the road-side realization because it looks much better than random rejection,
 	# but validate EVERY placement relation (inside/far_from/etc.) for every instance.
@@ -55,7 +67,7 @@ func lower(
 		if network == null:
 			last_error = "Placement failed for Distribution '%s': along target '%s' is not resolved" % [out.id, along_target]
 			return null
-		var lateral := network.width * 0.5 + radius + 1.0
+		var lateral := network.width * 0.5 + maxf(radius, visual_radius) + 1.0
 		if not _place_along_constrained(out, prototype_id, count, radius, placement, context, solver, domain, network, lateral):
 			return null
 		return out
@@ -81,14 +93,62 @@ func lower(
 		return null
 	return out
 
-func _resolve_count(amount: Dictionary) -> int:
+func _resolve_count(
+	amount: Dictionary,
+	semantic_type: String,
+	prototype_meta: Dictionary,
+	radius: float,
+	placement: Dictionary,
+	context: Dictionary,
+	solver: PlacementSolver,
+	domain: Rect2
+) -> int:
 	# Missing population amount is unspecified in World IR V2. It is NOT semantic
 	# medium density. Use a small backend realization default instead.
 	if amount.is_empty():
-		return UNSPECIFIED_COUNT
+		return DEFAULT_POPULATION_BUDGET
 	if String(amount.get("mode", "")) == "count":
 		return maxi(0, int(amount.get("value", 0)))
-	return int(DENSITY_COUNTS.get(String(amount.get("value", "medium")), DENSITY_COUNTS["medium"]))
+
+	var density := String(amount.get("value", "medium"))
+	var usable_area := _estimate_usable_area(domain, placement, radius, context, solver)
+	if usable_area <= 0.0:
+		return -1
+	var footprint: Vector2 = prototype_meta.get("population_footprint", Vector2.ONE * radius * 2.0)
+	var preferred_spacing := float(prototype_meta.get("population_spacing", 2.0))
+	var spacing_multiplier := float(DENSITY_SPACING_MULTIPLIERS.get(
+		density,
+		DENSITY_SPACING_MULTIPLIERS["medium"]
+	))
+	var spacing := preferred_spacing * spacing_multiplier
+	var area_per_instance := (
+		maxf(0.1, footprint.x + spacing)
+		* maxf(0.1, footprint.y + spacing)
+		* RANDOM_PACKING_LOSS
+	)
+	var population_cap := int(POPULATION_CAPS.get(semantic_type, DEFAULT_POPULATION_CAP))
+	return clampi(int(round(usable_area / area_per_instance)), 1, population_cap)
+
+func _estimate_usable_area(
+	domain: Rect2,
+	placement: Dictionary,
+	radius: float,
+	context: Dictionary,
+	solver: PlacementSolver
+) -> float:
+	if not domain.has_area():
+		return 0.0
+	var valid_samples := 0
+	var total_samples := USABLE_AREA_GRID_SIZE * USABLE_AREA_GRID_SIZE
+	for row in range(USABLE_AREA_GRID_SIZE):
+		for column in range(USABLE_AREA_GRID_SIZE):
+			var point := domain.position + Vector2(
+				(float(column) + 0.5) / float(USABLE_AREA_GRID_SIZE) * domain.size.x,
+				(float(row) + 0.5) / float(USABLE_AREA_GRID_SIZE) * domain.size.y
+			)
+			if solver.is_candidate_valid(point, placement, radius, context):
+				valid_samples += 1
+	return domain.get_area() * float(valid_samples) / float(total_samples)
 
 func _place_along_constrained(
 	out: ResolvedDistribution,

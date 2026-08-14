@@ -2,6 +2,7 @@ class_name NetworkLowerer
 extends RefCounted
 
 const RuntimeBindingResolverScript = preload("res://scripts/backend/runtime_binding_resolver.gd")
+const SUPPORTED_PLACEMENT_RELATIONS := ["inside", "near", "far_from", "direction_of"]
 
 var binding_resolver = RuntimeBindingResolverScript.new()
 var last_error := ""
@@ -24,7 +25,7 @@ func lower(
 	var placement_relations: Array = placement.get("relations", [])
 	for rel in placement_relations:
 		var kind: String = String(rel.get("type", ""))
-		if kind != "inside":
+		if not (kind in SUPPORTED_PLACEMENT_RELATIONS):
 			last_error = "Backend capability missing: Network '%s' placement relation '%s' is not implemented" % [out.id, kind]
 			return null
 
@@ -35,30 +36,29 @@ func lower(
 	var finish: Vector2 = _topology_point(to_token, solver, context)
 	var via: Array = topology.get("via", [])
 
-	# V0 backend heuristic:
-	# A world-anchor endpoint (south/north/east/west/...) is stronger than
-	# placement.inside. In that case `inside region` becomes a traversal hint:
-	# preserve the world-space endpoints and explicitly route through the Region.
-	# Pure object-reference topology keeps the strict inside-domain behavior.
+	# Topology owns connection endpoints and via order. Placement constrains the
+	# body of the path. In particular, world-anchor endpoints remain untouched:
+	# south -> north + inside town means a world-spanning road routed through town,
+	# not a road whose endpoints are clamped into the town polygon.
 	var has_world_anchor_endpoint: bool = _is_world_anchor(from_token) or _is_world_anchor(to_token)
 	var traversal_points: Array[Vector2] = []
-	if has_world_anchor_endpoint:
-		var placement_anchor: String = String(placement.get("anchor", ""))
-		if not placement_anchor.is_empty() and placement_anchor != "whole":
-			traversal_points.append(solver.anchor_point(placement_anchor))
-		for rel in placement_relations:
-			if String(rel.get("type", "")) != "inside":
-				continue
-			var target: String = String(rel.get("target", ""))
-			var region: ResolvedRegion = context.get("regions", {}).get(target)
-			if region == null:
-				last_error = "Placement failed for Network '%s': inside target '%s' has not been resolved" % [out.id, target]
-				return null
-			traversal_points.append(_region_traversal_point(region, solver))
+	var placement_anchor: String = String(placement.get("anchor", ""))
+	if not placement_anchor.is_empty() and placement_anchor != "whole":
+		traversal_points.append(solver.anchor_point(placement_anchor))
+	for rel in placement_relations:
+		var traversal_result := _relation_traversal_point(rel, solver, context)
+		if not bool(traversal_result.get("ok", false)):
+			last_error = "Placement failed for Network '%s': %s" % [out.id, String(traversal_result.get("error", "invalid placement relation"))]
+			return null
+		_append_control_point_if_distinct(traversal_points, traversal_result["point"])
 
 	var semantic_constrained: bool = placement.has("anchor") or not placement_relations.is_empty()
+	var has_strict_domain_constraint: bool = (
+		(not placement_anchor.is_empty() and placement_anchor != "whole")
+		or _has_relation(placement_relations, "inside")
+	)
 	var semantic_domain: Rect2 = Rect2()
-	if semantic_constrained and not has_world_anchor_endpoint:
+	if has_strict_domain_constraint and not has_world_anchor_endpoint:
 		semantic_domain = solver.placement_domain(placement, context)
 		if not semantic_domain.has_area():
 			last_error = "Placement failed for Network '%s': placement constraints have no spatial domain" % out.id
@@ -85,16 +85,16 @@ func lower(
 		control.append(constrained_points[0])
 		for token in via:
 			var via_point: Vector2 = _topology_point(String(token), solver, context)
-			control.append(_clamp_point(via_point, constrained_domain))
-		control.append(constrained_points[1])
+			_append_control_point_if_distinct(control, _clamp_point(via_point, constrained_domain))
+		for traversal_point in traversal_points:
+			_append_control_point_if_distinct(control, _clamp_point(traversal_point, constrained_domain))
+		_append_control_point_if_distinct(control, constrained_points[1])
 	else:
 		control.append(start)
 		for token in via:
-			control.append(_topology_point(String(token), solver, context))
-		if has_world_anchor_endpoint:
-			for traversal_index in range(traversal_points.size()):
-				var traversal_point: Vector2 = traversal_points[traversal_index]
-				_append_control_point_if_distinct(control, traversal_point)
+			_append_control_point_if_distinct(control, _topology_point(String(token), solver, context))
+		for traversal_point in traversal_points:
+			_append_control_point_if_distinct(control, traversal_point)
 		if binding_domain.has_area():
 			var center: Vector2 = binding_domain.get_center()
 			if not has_world_anchor_endpoint and semantic_constrained and semantic_domain.has_area() and not semantic_domain.has_point(center):
@@ -163,6 +163,61 @@ func _region_traversal_point(region: ResolvedRegion, solver: PlacementSolver) ->
 			if Geometry2D.is_point_in_polygon(candidate, region.polygon):
 				return candidate
 	return center
+
+func _relation_traversal_point(relation: Dictionary, solver: PlacementSolver, context: Dictionary) -> Dictionary:
+	var kind := String(relation.get("type", ""))
+	var target := String(relation.get("target", ""))
+	if kind == "inside":
+		var region: ResolvedRegion = context.get("regions", {}).get(target)
+		if region == null:
+			return {"ok": false, "error": "inside target '%s' has not been resolved" % target}
+		return {"ok": true, "point": _region_traversal_point(region, solver)}
+	if kind == "near":
+		return {"ok": true, "point": solver.target_center(target, context)}
+	if kind == "far_from":
+		return {"ok": true, "point": _farthest_anchor_from(target, solver, context)}
+	if kind == "direction_of":
+		var center := solver.target_center(target, context)
+		var axis := _direction_axis(String(relation.get("direction", "")))
+		var point := center + axis * (PlacementSolver.FAR_THRESHOLD_M + 4.0)
+		return {"ok": true, "point": _clamp_point(point, solver.world_bounds)}
+	return {"ok": false, "error": "relation '%s' is not implemented" % kind}
+
+func _farthest_anchor_from(target: String, solver: PlacementSolver, context: Dictionary) -> Vector2:
+	var bounds := solver.world_bounds
+	var inset := Vector2(0.001, 0.001)
+	var candidates: Array[Vector2] = [
+		bounds.position + inset,
+		Vector2(bounds.end.x - inset.x, bounds.position.y + inset.y),
+		Vector2(bounds.position.x + inset.x, bounds.end.y - inset.y),
+		bounds.end - inset,
+	]
+	var best := candidates[0]
+	var best_distance := -1.0
+	for candidate in candidates:
+		var distance := solver.distance_to_target(candidate, target, context)
+		if distance > best_distance:
+			best = candidate
+			best_distance = distance
+	return best
+
+func _direction_axis(direction: String) -> Vector2:
+	match direction:
+		"north": return Vector2(0.0, -1.0)
+		"south": return Vector2(0.0, 1.0)
+		"west": return Vector2(-1.0, 0.0)
+		"east": return Vector2(1.0, 0.0)
+		"northwest": return Vector2(-1.0, -1.0).normalized()
+		"northeast": return Vector2(1.0, -1.0).normalized()
+		"southwest": return Vector2(-1.0, 1.0).normalized()
+		"southeast": return Vector2(1.0, 1.0).normalized()
+	return Vector2.ZERO
+
+func _has_relation(relations: Array, kind: String) -> bool:
+	for relation in relations:
+		if String(relation.get("type", "")) == kind:
+			return true
+	return false
 
 func _append_control_point_if_distinct(control: Array[Vector2], point: Vector2) -> void:
 	if not control.is_empty() and control[control.size() - 1].is_equal_approx(point):

@@ -89,14 +89,6 @@ func try_resolve_candidate(
         "error": "No candidate satisfies all placement relations after %d attempts" % MAX_ATTEMPTS,
     }
 
-# Compatibility wrapper. Production lowerers use try_resolve_candidate() so failure
-# can be propagated instead of silently placing an invalid object at domain center.
-func resolve_candidate(placement: Dictionary, radius: float, context: Dictionary, preferred_rect: Rect2 = Rect2()) -> Vector2:
-    var result := try_resolve_candidate(placement, radius, context, preferred_rect)
-    if bool(result.get("ok", false)):
-        return result["position"]
-    return Vector2(INF, INF)
-
 func is_candidate_valid(p: Vector2, placement: Dictionary, radius: float, context: Dictionary) -> bool:
     if not is_semantically_valid(p, placement, context):
         return false
