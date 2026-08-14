@@ -30,6 +30,7 @@ func lower(
 		"ir_objects": ir_objects,
 		"ir_kinds": ir_kinds,
 		"spatial_payloads": spatial_payloads,
+		"seed": seed_value,
 	}
 
 	_validate_binding_capability(runtime_bindings, spatial_payloads, out)
@@ -39,12 +40,18 @@ func lower(
 	for item in world_ir.get("regions", []):
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
 		var resolved := region_lowerer.lower(item, solver, binding, spatial_payloads, context)
+		if resolved == null:
+			out.errors.append(region_lowerer.last_error if not region_lowerer.last_error.is_empty() else "Region lowering failed")
+			return out
 		out.regions.append(resolved)
 		context.regions[resolved.id] = resolved
 
 	for item in world_ir.get("networks", []):
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
 		var resolved := network_lowerer.lower(item, solver, seed_value, context, binding)
+		if resolved == null:
+			out.errors.append(network_lowerer.last_error if not network_lowerer.last_error.is_empty() else "Network lowering failed")
+			return out
 		out.networks.append(resolved)
 		context.networks[resolved.id] = resolved
 
@@ -52,10 +59,7 @@ func lower(
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
 		var resolved := entity_lowerer.lower(item, catalog, solver, context, binding)
 		if resolved == null:
-			out.errors.append(
-                "Backend capability missing: no TSCN prototype for Entity '%s' (type='%s')"
-				% [String(item.get("id", "")), String(item.get("type", ""))]
-			)
+			out.errors.append(entity_lowerer.last_error if not entity_lowerer.last_error.is_empty() else "Entity lowering failed")
 			continue
 		out.entities.append(resolved)
 		context.entities[resolved.id] = resolved
@@ -64,10 +68,7 @@ func lower(
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
 		var resolved := distribution_lowerer.lower(item, catalog, solver, context, binding)
 		if resolved == null:
-			out.errors.append(
-                "Backend capability missing: no TSCN prototype for Distribution '%s' (type='%s')"
-				% [String(item.get("id", "")), String(item.get("type", ""))]
-			)
+			out.errors.append(distribution_lowerer.last_error if not distribution_lowerer.last_error.is_empty() else "Distribution lowering failed")
 			continue
 		out.distributions.append(resolved)
 		context.distributions[resolved.id] = resolved

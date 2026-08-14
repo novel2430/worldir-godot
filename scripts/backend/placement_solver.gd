@@ -40,15 +40,41 @@ func anchor_point(anchor: String) -> Vector2:
     var r := anchor_rect(anchor)
     return r.position + r.size * 0.5
 
-func resolve_candidate(placement: Dictionary, radius: float, context: Dictionary, preferred_rect: Rect2 = Rect2()) -> Vector2:
-    var domain := preferred_rect if preferred_rect.has_area() else anchor_rect(String(placement.get("anchor", "whole")))
-    var relations: Array = placement.get("relations", [])
-    var inside_region: ResolvedRegion = null
-    for rel in relations:
-        if String(rel.get("type", "")) == "inside":
-            inside_region = context.get("regions", {}).get(String(rel.get("target", "")))
-            if inside_region != null:
-                domain = polygon_aabb(inside_region.polygon)
+# Placement.anchor and every inside relation are conjunctive. Runtime/binding domains
+# passed as preferred_rect are conjunctive as well rather than silently replacing IR.
+func placement_domain(placement: Dictionary, context: Dictionary, preferred_rect: Rect2 = Rect2()) -> Rect2:
+    var domain := world_bounds
+    if preferred_rect.has_area():
+        domain = intersect_rect(domain, preferred_rect)
+
+    var anchor := String(placement.get("anchor", "whole"))
+    if anchor != "whole" and not anchor.is_empty():
+        domain = intersect_rect(domain, anchor_rect(anchor))
+
+    for rel in placement.get("relations", []):
+        if String(rel.get("type", "")) != "inside":
+            continue
+        var target := String(rel.get("target", ""))
+        var region: ResolvedRegion = context.get("regions", {}).get(target)
+        if region == null:
+            return Rect2()
+        domain = intersect_rect(domain, polygon_aabb(region.polygon))
+        if not domain.has_area():
+            return Rect2()
+    return domain
+
+func try_resolve_candidate(
+    placement: Dictionary,
+    radius: float,
+    context: Dictionary,
+    preferred_rect: Rect2 = Rect2()
+) -> Dictionary:
+    var domain := placement_domain(placement, context, preferred_rect)
+    if not domain.has_area():
+        return {
+            "ok": false,
+            "error": "Placement constraints have no overlapping spatial domain",
+        }
 
     for _attempt in range(MAX_ATTEMPTS):
         var p := Vector2(
@@ -56,42 +82,37 @@ func resolve_candidate(placement: Dictionary, radius: float, context: Dictionary
             rng.randf_range(domain.position.y, domain.end.y)
         )
         if is_candidate_valid(p, placement, radius, context):
-            return p
-    return domain.position + domain.size * 0.5
+            return {"ok": true, "position": p}
+
+    return {
+        "ok": false,
+        "error": "No candidate satisfies all placement relations after %d attempts" % MAX_ATTEMPTS,
+    }
+
+# Compatibility wrapper. Production lowerers use try_resolve_candidate() so failure
+# can be propagated instead of silently placing an invalid object at domain center.
+func resolve_candidate(placement: Dictionary, radius: float, context: Dictionary, preferred_rect: Rect2 = Rect2()) -> Vector2:
+    var result := try_resolve_candidate(placement, radius, context, preferred_rect)
+    if bool(result.get("ok", false)):
+        return result["position"]
+    return Vector2(INF, INF)
 
 func is_candidate_valid(p: Vector2, placement: Dictionary, radius: float, context: Dictionary) -> bool:
-    var relations: Array = placement.get("relations", [])
-    for rel in relations:
-        if String(rel.get("type", "")) != "inside":
-            continue
-        var region: ResolvedRegion = context.get("regions", {}).get(String(rel.get("target", "")))
-        if region != null and not Geometry2D.is_point_in_polygon(p, region.polygon):
-            return false
-    if not _satisfies_relations(p, relations, context):
+    if not is_semantically_valid(p, placement, context):
         return false
     if overlaps(p, radius):
         return false
     return true
 
-func resolve_along(network: ResolvedNetwork, count: int, lateral_offset: float, radius: float) -> Array[Vector2]:
-    var out: Array[Vector2] = []
-    if network == null or network.curve_points.size() < 2 or count <= 0:
-        return out
-    var lengths := _polyline_lengths(network.curve_points)
-    var total: float = lengths[-1]
-    for i in range(count):
-        var t := float(i + 1) / float(count + 1)
-        var sample := sample_network(network, t, lengths, total)
-        var pos: Vector2 = sample[0]
-        var tangent: Vector2 = sample[1]
-        var normal := Vector2(-tangent.y, tangent.x).normalized()
-        var side := -1.0 if i % 2 == 0 else 1.0
-        var p := pos + normal * lateral_offset * side
-        if overlaps(p, radius):
-            p += tangent * rng.randf_range(-4.0, 4.0)
-        out.append(p)
-        register_occupancy(p, radius, "along")
-    return out
+func is_semantically_valid(p: Vector2, placement: Dictionary, context: Dictionary) -> bool:
+    var relations: Array = placement.get("relations", [])
+    for rel in relations:
+        if String(rel.get("type", "")) != "inside":
+            continue
+        var region: ResolvedRegion = context.get("regions", {}).get(String(rel.get("target", "")))
+        if region == null or not Geometry2D.is_point_in_polygon(p, region.polygon):
+            return false
+    return _satisfies_relations(p, relations, context)
 
 func sample_network(network: ResolvedNetwork, t: float, cached_lengths: Array[float] = [], cached_total: float = -1.0) -> Array:
     if network == null or network.curve_points.size() < 2:
@@ -110,6 +131,17 @@ func overlaps(p: Vector2, radius: float) -> bool:
         if p.distance_squared_to(item.position) < min_dist * min_dist:
             return true
     return false
+
+func intersect_rect(a: Rect2, b: Rect2) -> Rect2:
+    if not a.has_area() or not b.has_area():
+        return Rect2()
+    var x0 := maxf(a.position.x, b.position.x)
+    var y0 := maxf(a.position.y, b.position.y)
+    var x1 := minf(a.end.x, b.end.x)
+    var y1 := minf(a.end.y, b.end.y)
+    if x1 <= x0 or y1 <= y0:
+        return Rect2()
+    return Rect2(x0, y0, x1 - x0, y1 - y0)
 
 func polygon_aabb(poly: PackedVector2Array) -> Rect2:
     if poly.is_empty():
@@ -144,6 +176,13 @@ func distance_to_target(p: Vector2, target: String, context: Dictionary) -> floa
     var net: ResolvedNetwork = context.get("networks", {}).get(target)
     if net != null:
         return p.distance_to(nearest_point_on_network(p, net))
+
+    var region: ResolvedRegion = context.get("regions", {}).get(target)
+    if region != null:
+        if Geometry2D.is_point_in_polygon(p, region.polygon):
+            return 0.0
+        return _distance_to_polygon(p, region.polygon)
+
     return p.distance_to(target_center(target, context))
 
 func target_center(target: String, context: Dictionary) -> Vector2:
@@ -177,11 +216,24 @@ func _satisfies_relations(p: Vector2, relations: Array, context: Dictionary) -> 
                     return false
             "along":
                 var net: ResolvedNetwork = context.get("networks", {}).get(target)
-                if net != null and p.distance_to(nearest_point_on_network(p, net)) > ALONG_THRESHOLD_M:
+                if net == null:
+                    return false
+                if p.distance_to(nearest_point_on_network(p, net)) > ALONG_THRESHOLD_M:
                     return false
             "inside":
                 pass
     return true
+
+func _distance_to_polygon(p: Vector2, poly: PackedVector2Array) -> float:
+    if poly.size() < 2:
+        return INF
+    var best := INF
+    for i in range(poly.size()):
+        var a := poly[i]
+        var b := poly[(i + 1) % poly.size()]
+        var q := Geometry2D.get_closest_point_to_segment(p, a, b)
+        best = minf(best, p.distance_to(q))
+    return best
 
 func _target_center(target: String, context: Dictionary, visiting: Dictionary) -> Vector2:
     var region: ResolvedRegion = context.get("regions", {}).get(target)

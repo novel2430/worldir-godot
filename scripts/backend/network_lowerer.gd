@@ -4,85 +4,196 @@ extends RefCounted
 const RuntimeBindingResolverScript = preload("res://scripts/backend/runtime_binding_resolver.gd")
 
 var binding_resolver = RuntimeBindingResolverScript.new()
+var last_error := ""
 
 func lower(
-    item: Dictionary,
-    solver: PlacementSolver,
-    seed_value: int,
-    context: Dictionary,
-    binding: Dictionary = {}
+	item: Dictionary,
+	solver: PlacementSolver,
+	seed_value: int,
+	context: Dictionary,
+	binding: Dictionary = {}
 ) -> ResolvedNetwork:
-    var out := ResolvedNetwork.new()
-    out.id = String(item.get("id", ""))
-    out.semantic_type = String(item.get("type", "road"))
-    out.width = 5.5 if out.semantic_type == "road" else 2.5
-    out.surface_kind = out.semantic_type
+	last_error = ""
+	var out := ResolvedNetwork.new()
+	out.id = String(item.get("id", ""))
+	out.semantic_type = String(item.get("type", "road"))
+	out.width = 5.5 if out.semantic_type == "road" else 2.5
+	out.surface_kind = out.semantic_type
 
-    var topology: Dictionary = item.get("topology", {})
-    var start := _topology_point(String(topology.get("from", "south")), solver, context)
-    var finish := _topology_point(String(topology.get("to", "north")), solver, context)
-    var via: Array = topology.get("via", [])
-    var control: Array[Vector2] = [start]
-    for token in via:
-        control.append(_topology_point(String(token), solver, context))
+	var placement: Dictionary = item.get("placement", {})
+	var placement_relations: Array = placement.get("relations", [])
+	for rel in placement_relations:
+		var kind: String = String(rel.get("type", ""))
+		if kind != "inside":
+			last_error = "Backend capability missing: Network '%s' placement relation '%s' is not implemented" % [out.id, kind]
+			return null
 
-    var binding_domain: Rect2 = binding_resolver.resolve_domain(
-        binding,
-        context.get("spatial_payloads", {}),
-        solver.world_bounds,
-        Vector2(24.0, 24.0)
-    )
-    if binding_domain.has_area():
-        var mode := String(binding.get("placement", "at"))
-        if mode == "inside":
-            var inside_points := _inside_binding_points(start, finish, binding_domain)
-            control = [inside_points[0]]
-            for token in via:
-                var via_point := _topology_point(String(token), solver, context)
-                control.append(_clamp_point(via_point, binding_domain))
-            control.append(inside_points[1])
-        else:
-            control.append(binding_domain.get_center())
-            control.append(finish)
-    else:
-        control.append(finish)
+	var topology: Dictionary = item.get("topology", {})
+	var from_token: String = String(topology.get("from", "south"))
+	var to_token: String = String(topology.get("to", "north"))
+	var start: Vector2 = _topology_point(from_token, solver, context)
+	var finish: Vector2 = _topology_point(to_token, solver, context)
+	var via: Array = topology.get("via", [])
 
-    var local_rng := RandomNumberGenerator.new()
-    local_rng.seed = seed_value ^ out.id.hash()
-    var points := PackedVector3Array()
-    for seg in range(control.size() - 1):
-        var a := control[seg]
-        var b := control[seg + 1]
-        var tangent := (b - a).normalized()
-        var normal := Vector2(-tangent.y, tangent.x)
-        var steps := 7
-        for i in range(steps):
-            if seg > 0 and i == 0:
-                continue
-            var t := float(i) / float(steps - 1)
-            var bend := sin(t * PI) * local_rng.randf_range(-5.0, 5.0)
-            var p := a.lerp(b, t) + normal * bend
-            points.append(Vector3(p.x, 0.08, p.y))
-    out.curve_points = points
-    return out
+	# V0 backend heuristic:
+	# A world-anchor endpoint (south/north/east/west/...) is stronger than
+	# placement.inside. In that case `inside region` becomes a traversal hint:
+	# preserve the world-space endpoints and explicitly route through the Region.
+	# Pure object-reference topology keeps the strict inside-domain behavior.
+	var has_world_anchor_endpoint: bool = _is_world_anchor(from_token) or _is_world_anchor(to_token)
+	var traversal_points: Array[Vector2] = []
+	if has_world_anchor_endpoint:
+		var placement_anchor: String = String(placement.get("anchor", ""))
+		if not placement_anchor.is_empty() and placement_anchor != "whole":
+			traversal_points.append(solver.anchor_point(placement_anchor))
+		for rel in placement_relations:
+			if String(rel.get("type", "")) != "inside":
+				continue
+			var target: String = String(rel.get("target", ""))
+			var region: ResolvedRegion = context.get("regions", {}).get(target)
+			if region == null:
+				last_error = "Placement failed for Network '%s': inside target '%s' has not been resolved" % [out.id, target]
+				return null
+			traversal_points.append(_region_traversal_point(region, solver))
+
+	var semantic_constrained: bool = placement.has("anchor") or not placement_relations.is_empty()
+	var semantic_domain: Rect2 = Rect2()
+	if semantic_constrained and not has_world_anchor_endpoint:
+		semantic_domain = solver.placement_domain(placement, context)
+		if not semantic_domain.has_area():
+			last_error = "Placement failed for Network '%s': placement constraints have no spatial domain" % out.id
+			return null
+
+	var binding_domain: Rect2 = binding_resolver.resolve_domain(
+		binding,
+		context.get("spatial_payloads", {}),
+		solver.world_bounds,
+		Vector2(24.0, 24.0)
+	)
+	var binding_mode: String = String(binding.get("placement", "at"))
+
+	var constrained_domain: Rect2 = semantic_domain
+	if binding_domain.has_area() and binding_mode == "inside" and not has_world_anchor_endpoint:
+		constrained_domain = binding_domain if not constrained_domain.has_area() else solver.intersect_rect(constrained_domain, binding_domain)
+		if not constrained_domain.has_area():
+			last_error = "Placement failed for Network '%s': Runtime Binding conflicts with IR placement" % out.id
+			return null
+
+	var control: Array[Vector2] = []
+	if constrained_domain.has_area():
+		var constrained_points: Array[Vector2] = _inside_binding_points(start, finish, constrained_domain)
+		control.append(constrained_points[0])
+		for token in via:
+			var via_point: Vector2 = _topology_point(String(token), solver, context)
+			control.append(_clamp_point(via_point, constrained_domain))
+		control.append(constrained_points[1])
+	else:
+		control.append(start)
+		for token in via:
+			control.append(_topology_point(String(token), solver, context))
+		if has_world_anchor_endpoint:
+			for traversal_index in range(traversal_points.size()):
+				var traversal_point: Vector2 = traversal_points[traversal_index]
+				_append_control_point_if_distinct(control, traversal_point)
+		if binding_domain.has_area():
+			var center: Vector2 = binding_domain.get_center()
+			if not has_world_anchor_endpoint and semantic_constrained and semantic_domain.has_area() and not semantic_domain.has_point(center):
+				last_error = "Placement failed for Network '%s': Runtime Binding target violates IR placement" % out.id
+				return null
+			_append_control_point_if_distinct(control, center)
+		_append_control_point_if_distinct(control, finish)
+
+	var local_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	local_rng.seed = seed_value ^ out.id.hash()
+	var points: PackedVector3Array = PackedVector3Array()
+	for seg in range(control.size() - 1):
+		var a: Vector2 = control[seg]
+		var b: Vector2 = control[seg + 1]
+		var tangent: Vector2 = (b - a).normalized()
+		var normal: Vector2 = Vector2(-tangent.y, tangent.x)
+		var steps: int = 7
+		for i in range(steps):
+			if seg > 0 and i == 0:
+				continue
+			var t: float = float(i) / float(steps - 1)
+			var bend: float = sin(t * PI) * local_rng.randf_range(-5.0, 5.0)
+			var p: Vector2 = a.lerp(b, t) + normal * bend
+			if constrained_domain.has_area():
+				p = _clamp_point(p, constrained_domain)
+			points.append(Vector3(p.x, 0.08, p.y))
+	out.curve_points = points
+	return out
 
 func _topology_point(token: String, solver: PlacementSolver, context: Dictionary) -> Vector2:
-    if token in ["north", "south", "east", "west", "center", "northwest", "northeast", "southwest", "southeast", "whole"]:
-        return solver.anchor_point(token)
-    return solver.target_center(token, context)
+	if _is_world_anchor(token):
+		return solver.anchor_point(token)
+	return solver.target_center(token, context)
+
+func _is_world_anchor(token: String) -> bool:
+	return token in [
+		"north",
+		"south",
+		"east",
+		"west",
+		"center",
+		"northwest",
+		"northeast",
+		"southwest",
+		"southeast",
+		"whole",
+	]
+
+func _region_traversal_point(region: ResolvedRegion, solver: PlacementSolver) -> Vector2:
+	var rect: Rect2 = solver.polygon_aabb(region.polygon)
+	var center: Vector2 = rect.get_center()
+	if Geometry2D.is_point_in_polygon(center, region.polygon):
+		return center
+
+	# Region V0.5 polygons are mild irregularizations of a base domain, so their
+	# AABB center should normally be inside. Keep a deterministic grid fallback
+	# for future concave shapes without consuming PlacementSolver RNG state.
+	for y_index in range(1, 5):
+		for x_index in range(1, 5):
+			var x_t: float = float(x_index) / 5.0
+			var y_t: float = float(y_index) / 5.0
+			var candidate: Vector2 = Vector2(
+				lerpf(rect.position.x, rect.end.x, x_t),
+				lerpf(rect.position.y, rect.end.y, y_t)
+			)
+			if Geometry2D.is_point_in_polygon(candidate, region.polygon):
+				return candidate
+	return center
+
+func _append_control_point_if_distinct(control: Array[Vector2], point: Vector2) -> void:
+	if not control.is_empty() and control[control.size() - 1].is_equal_approx(point):
+		return
+	control.append(point)
 
 func _inside_binding_points(start: Vector2, finish: Vector2, domain: Rect2) -> Array[Vector2]:
-    var direction := finish - start
-    if absf(direction.x) >= absf(direction.y):
-        var left := Vector2(domain.position.x + domain.size.x * 0.15, domain.get_center().y)
-        var right := Vector2(domain.end.x - domain.size.x * 0.15, domain.get_center().y)
-        return [left, right] if direction.x >= 0.0 else [right, left]
-    var top := Vector2(domain.get_center().x, domain.position.y + domain.size.y * 0.15)
-    var bottom := Vector2(domain.get_center().x, domain.end.y - domain.size.y * 0.15)
-    return [top, bottom] if direction.y >= 0.0 else [bottom, top]
+	var direction: Vector2 = finish - start
+	var points: Array[Vector2] = []
+	if absf(direction.x) >= absf(direction.y):
+		var left: Vector2 = Vector2(domain.position.x + domain.size.x * 0.15, domain.get_center().y)
+		var right: Vector2 = Vector2(domain.end.x - domain.size.x * 0.15, domain.get_center().y)
+		if direction.x >= 0.0:
+			points.append(left)
+			points.append(right)
+		else:
+			points.append(right)
+			points.append(left)
+		return points
+	var top: Vector2 = Vector2(domain.get_center().x, domain.position.y + domain.size.y * 0.15)
+	var bottom: Vector2 = Vector2(domain.get_center().x, domain.end.y - domain.size.y * 0.15)
+	if direction.y >= 0.0:
+		points.append(top)
+		points.append(bottom)
+	else:
+		points.append(bottom)
+		points.append(top)
+	return points
 
 func _clamp_point(point: Vector2, domain: Rect2) -> Vector2:
-    return Vector2(
-        clampf(point.x, domain.position.x, domain.end.x),
-        clampf(point.y, domain.position.y, domain.end.y)
-    )
+	return Vector2(
+		clampf(point.x, domain.position.x, domain.end.x),
+		clampf(point.y, domain.position.y, domain.end.y)
+	)

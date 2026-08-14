@@ -46,23 +46,34 @@ func _instantiate(prototype_id: String, catalog: PrototypeCatalog) -> Node3D:
     return scene.instantiate() as Node3D
 
 func _build_region(region: ResolvedRegion) -> Node3D:
-    var root := Node3D.new(); root.name = _safe_name(region.id)
+    var root: Node3D = Node3D.new(); root.name = _safe_name(region.id)
     if region.polygon.size() < 3: return root
-    var mesh_instance := MeshInstance3D.new()
-    var st := SurfaceTool.new(); st.begin(Mesh.PRIMITIVE_TRIANGLES)
-    var p0 := region.polygon[0]
-    for i in range(1, region.polygon.size() - 1):
-        _region_vertex(st, p0); _region_vertex(st, region.polygon[i]); _region_vertex(st, region.polygon[i + 1])
+    var indices: PackedInt32Array = Geometry2D.triangulate_polygon(region.polygon)
+    if indices.is_empty(): return root
+    var mesh_instance: MeshInstance3D = MeshInstance3D.new()
+    var st: SurfaceTool = SurfaceTool.new(); st.begin(Mesh.PRIMITIVE_TRIANGLES)
+    var height: float = _region_height(region.semantic_type)
+    for raw_index in indices:
+        var index: int = int(raw_index)
+        _region_vertex(st, region.polygon[index], height)
     mesh_instance.mesh = st.commit()
-    var material := StandardMaterial3D.new()
+    var material: StandardMaterial3D = StandardMaterial3D.new()
     material.albedo_color = _region_color(region.semantic_type)
     material.roughness = 1.0
     mesh_instance.material_override = material
     root.add_child(mesh_instance)
     return root
 
-func _region_vertex(st: SurfaceTool, p: Vector2) -> void:
-    st.set_normal(Vector3.UP); st.add_vertex(Vector3(p.x, 0.02, p.y))
+func _region_vertex(st: SurfaceTool, p: Vector2, height: float) -> void:
+    st.set_normal(Vector3.UP); st.add_vertex(Vector3(p.x, height, p.y))
+
+func _region_height(kind: String) -> float:
+    match kind:
+        "coast": return 0.012
+        "forest": return 0.016
+        "town", "village": return 0.022
+        "graveyard": return 0.026
+        _: return 0.018
 
 func _region_color(kind: String) -> Color:
     match kind:

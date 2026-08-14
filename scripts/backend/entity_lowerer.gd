@@ -4,6 +4,7 @@ extends RefCounted
 const RuntimeBindingResolverScript = preload("res://scripts/backend/runtime_binding_resolver.gd")
 
 var binding_resolver = RuntimeBindingResolverScript.new()
+var last_error := ""
 
 func lower(
     item: Dictionary,
@@ -12,11 +13,13 @@ func lower(
     context: Dictionary,
     binding: Dictionary = {}
 ) -> ResolvedEntity:
+    last_error = ""
     var out := ResolvedEntity.new()
     out.id = String(item.get("id", ""))
     out.semantic_type = String(item.get("type", ""))
     out.prototype_id = catalog.choose_prototype(out.semantic_type)
     if out.prototype_id.is_empty():
+        last_error = "Backend capability missing: no TSCN prototype for Entity '%s' (type='%s')" % [out.id, out.semantic_type]
         return null
 
     var meta := catalog.get_metadata(out.prototype_id)
@@ -28,7 +31,12 @@ func lower(
         solver.world_bounds,
         Vector2(maxf(6.0, radius * 2.0), maxf(6.0, radius * 2.0))
     )
-    var p := solver.resolve_candidate(placement, radius, context, preferred)
+    var candidate := solver.try_resolve_candidate(placement, radius, context, preferred)
+    if not bool(candidate.get("ok", false)):
+        last_error = "Placement failed for Entity '%s': %s" % [out.id, String(candidate.get("error", "unknown placement failure"))]
+        return null
+
+    var p: Vector2 = candidate["position"]
     solver.register_occupancy(p, radius, out.id)
     var yaw := solver.rng.randf_range(-PI, PI)
     out.transform = Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, 0.0, p.y))
