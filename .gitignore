@@ -1,0 +1,115 @@
+# ============================================================
+# Godot 4 generated files
+# ============================================================
+
+# Godot import/cache/editor generated data
+.godot/
+
+# Godot 3 legacy import directory (harmless to keep ignored)
+.import/
+
+
+# ============================================================
+# Export / build outputs
+# ============================================================
+
+build/
+dist/
+exports/
+export/
+
+# Export credentials may contain signing secrets
+export_credentials.cfg
+
+# Keep export_presets.cfg tracked.
+# It describes export settings and normally belongs in Git.
+
+
+# ============================================================
+# Temporary / backup files
+# ============================================================
+
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+*.rej
+*~
+*.swp
+*.swo
+
+# Backup directory created by our Contract update scripts
+.contract-update-backup/
+
+
+# ============================================================
+# OS-generated files
+# ============================================================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+Thumbs.db
+Desktop.ini
+
+
+# ============================================================
+# Editors / IDEs
+# ============================================================
+
+.vscode/
+.idea/
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Vim / Neovim
+*.swp
+*.swo
+*.swn
+
+
+# ============================================================
+# Python helper tooling
+# ============================================================
+
+# The repo currently contains Python validation/helper scripts.
+# Ignore only their generated environment/cache, not the scripts.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.venv/
+venv/
+env/
+
+
+# ============================================================
+# Logs / local runtime output
+# ============================================================
+
+*.log
+logs/
+
+
+# ============================================================
+# Local environment / secrets
+# ============================================================
+
+.env
+.env.*
+!.env.example
+
+
+# ============================================================
+# Local test / scratch artifacts
+# ============================================================
+
+tmp/
+scratch/
