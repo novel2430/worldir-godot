@@ -1,6 +1,9 @@
 class_name WorldBackend
 extends RefCounted
 
+const IMPLICIT_FOREST_TREES_PREFIX := "__backend_default__:forest_trees:"
+const IMPLICIT_FOREST_TREE_DENSITY := "medium"
+
 var region_lowerer := RegionLowerer.new()
 var network_lowerer := NetworkLowerer.new()
 var entity_lowerer := EntityLowerer.new()
@@ -73,7 +76,86 @@ func lower(
 		out.distributions.append(resolved)
 		context.distributions[resolved.id] = resolved
 
+	_lower_implicit_region_defaults(world_ir, catalog, context, out)
+
 	return out
+
+func _lower_implicit_region_defaults(
+	world_ir: Dictionary,
+	catalog: PrototypeCatalog,
+	context: Dictionary,
+	out: ResolvedWorld
+) -> void:
+	var explicit_tree_forests := _forests_with_explicit_tree_distributions(world_ir)
+	for region in out.regions:
+		if region.semantic_type != "forest" or explicit_tree_forests.has(region.id):
+			continue
+
+		var synthetic_id := _unique_implicit_id(region.id, context)
+		var synthetic_distribution := {
+			"id": synthetic_id,
+			"type": "tree",
+			"placement": {
+				"relations": [{"type": "inside", "target": region.id}],
+			},
+			"population": {
+				"amount": {"mode": "density", "value": IMPLICIT_FOREST_TREE_DENSITY},
+				"arrangement": {"type": "random"},
+			},
+		}
+
+		# Defaults are decorative and lower last. A failed attempt must not leave
+		# partial occupancy or RNG changes that influence another forest default.
+		var occupancy_checkpoint: int = solver.occupied.size()
+		var rng_checkpoint: int = solver.rng.state
+		var resolved := distribution_lowerer.lower(
+			synthetic_distribution,
+			catalog,
+			solver,
+			context
+		)
+		if resolved == null:
+			solver.occupied.resize(occupancy_checkpoint)
+			solver.rng.state = rng_checkpoint
+			out.warnings.append(
+				"Skipped implicit trees for forest '%s': %s"
+				% [region.id, distribution_lowerer.last_error]
+			)
+			continue
+
+		out.distributions.append(resolved)
+		context.distributions[resolved.id] = resolved
+
+func _forests_with_explicit_tree_distributions(world_ir: Dictionary) -> Dictionary:
+	var explicit_forests: Dictionary = {}
+	for raw_distribution in world_ir.get("distributions", []):
+		if typeof(raw_distribution) != TYPE_DICTIONARY:
+			continue
+		var distribution: Dictionary = raw_distribution
+		if String(distribution.get("type", "")) != "tree":
+			continue
+		var placement_value: Variant = distribution.get("placement", {})
+		if typeof(placement_value) != TYPE_DICTIONARY:
+			continue
+		var placement: Dictionary = placement_value
+		for raw_relation in placement.get("relations", []):
+			if typeof(raw_relation) != TYPE_DICTIONARY:
+				continue
+			var relation: Dictionary = raw_relation
+			if String(relation.get("type", "")) == "inside":
+				explicit_forests[String(relation.get("target", ""))] = true
+	return explicit_forests
+
+func _unique_implicit_id(forest_id: String, context: Dictionary) -> String:
+	var base_id := IMPLICIT_FOREST_TREES_PREFIX + forest_id
+	var candidate := base_id
+	var suffix := 1
+	var ir_objects: Dictionary = context.get("ir_objects", {})
+	var resolved_distributions: Dictionary = context.get("distributions", {})
+	while ir_objects.has(candidate) or resolved_distributions.has(candidate):
+		candidate = "%s:%d" % [base_id, suffix]
+		suffix += 1
+	return candidate
 
 func _index_ir(world_ir: Dictionary, ir_objects: Dictionary, ir_kinds: Dictionary) -> void:
 	var roots := {

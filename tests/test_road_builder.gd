@@ -1,0 +1,99 @@
+extends SceneTree
+
+var failures := 0
+
+func _init() -> void:
+    _run.call_deferred()
+
+func _run() -> void:
+    var fixture_file := FileAccess.open("res://data/fixtures/coastal_town_initial.json", FileAccess.READ)
+    _expect(fixture_file != null, "Coastal town fixture must be readable")
+    if fixture_file == null:
+        _finish()
+        return
+    var fixture: Variant = JSON.parse_string(fixture_file.get_as_text())
+    _expect(typeof(fixture) == TYPE_DICTIONARY, "Coastal town fixture must contain JSON")
+    if typeof(fixture) != TYPE_DICTIONARY:
+        _finish()
+        return
+
+    var catalog := PrototypeCatalog.new()
+    root.add_child(catalog)
+    var resolved := WorldBackend.new().lower(fixture.world_ir, catalog, 1337)
+    _expect(resolved.errors.is_empty(), "Fixture must lower before runtime mesh construction")
+    var network: ResolvedNetwork = resolved.find_network("main_road")
+    _expect(network != null, "Lowered fixture must contain main_road")
+    if network == null:
+        catalog.free()
+        _finish()
+        return
+    _expect(network.curve_points.size() >= 2, "NetworkLowerer must produce road curve points")
+    _expect(is_equal_approx(network.width, 5.5), "Road width must reach RoadBuilder unchanged")
+
+    var scene_runtime := SceneRuntime.new()
+    var candidate := scene_runtime.build_candidate(resolved, catalog)
+    root.add_child(candidate)
+
+    _expect(candidate.is_inside_tree(), "Candidate world must enter the SceneTree")
+    var road := candidate.get_node_or_null("Networks/main_road") as Node3D
+    _expect(road != null, "SceneRuntime must attach the built road under Networks")
+    if road == null:
+        candidate.free()
+        scene_runtime.free()
+        catalog.free()
+        _finish()
+        return
+    var road_mesh_instance := road.get_node_or_null("RoadMesh") as MeshInstance3D
+    _expect(road_mesh_instance != null, "RoadBuilder must attach RoadMesh")
+    if road_mesh_instance == null or road_mesh_instance.mesh == null:
+        candidate.free()
+        scene_runtime.free()
+        catalog.free()
+        _finish()
+        return
+
+    var road_arrays: Array = road_mesh_instance.mesh.surface_get_arrays(0)
+    var road_vertices: PackedVector3Array = road_arrays[Mesh.ARRAY_VERTEX]
+    var road_normals: PackedVector3Array = road_arrays[Mesh.ARRAY_NORMAL]
+    var expected_vertex_count: int = (network.curve_points.size() - 1) * 6
+    _expect(road_vertices.size() == expected_vertex_count, "Each road segment must produce two triangles")
+    _expect(road_normals.size() == road_vertices.size(), "Every road vertex must have a normal")
+
+    for triangle_start in range(0, road_vertices.size(), 3):
+        var geometric_normal := _triangle_normal(
+            road_vertices[triangle_start],
+            road_vertices[triangle_start + 1],
+            road_vertices[triangle_start + 2]
+        )
+        # Godot front faces use clockwise winding. For an upward-facing XZ
+        # surface, the raw cross product therefore points toward -Y.
+        _expect(geometric_normal.dot(Vector3.DOWN) > 0.999, "Road triangle winding must face upward in Godot")
+        _expect(not geometric_normal.is_zero_approx(), "Road triangles must not be degenerate")
+
+    for normal in road_normals:
+        _expect(normal.dot(Vector3.UP) > 0.999, "Road lighting normals must point upward")
+
+    var material := road_mesh_instance.material_override as StandardMaterial3D
+    _expect(material != null, "Road mesh must have a material")
+    if material != null:
+        _expect(material.cull_mode == BaseMaterial3D.CULL_BACK, "Road must remain backface-culled")
+    _expect(is_equal_approx(road_mesh_instance.mesh.get_aabb().position.y, 0.08), "Road mesh must retain its visible height")
+
+    candidate.free()
+    scene_runtime.free()
+    catalog.free()
+    _finish()
+
+func _triangle_normal(a: Vector3, b: Vector3, c: Vector3) -> Vector3:
+    return (b - a).cross(c - a).normalized()
+
+func _expect(condition: bool, message: String) -> void:
+    if condition:
+        return
+    failures += 1
+    push_error(message)
+
+func _finish() -> void:
+    if failures == 0:
+        print("RoadBuilder runtime mesh tests passed")
+    quit(1 if failures > 0 else 0)

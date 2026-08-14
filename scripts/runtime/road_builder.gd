@@ -30,8 +30,10 @@ func _build_ribbon(points: PackedVector3Array, width: float) -> ArrayMesh:
         var a_r := Vector3(a.x - n.x, a.y, a.z - n.y)
         var b_l := Vector3(b.x + n.x, b.y, b.z + n.y)
         var b_r := Vector3(b.x - n.x, b.y, b.z - n.y)
-        _vertex(st, a_l, Vector2(0, 0)); _vertex(st, b_l, Vector2(0, 1)); _vertex(st, b_r, Vector2(1, 1))
-        _vertex(st, a_l, Vector2(0, 0)); _vertex(st, b_r, Vector2(1, 1)); _vertex(st, a_r, Vector2(1, 0))
+        # Godot treats clockwise winding as front-facing. On the XZ plane these
+        # orders face upward while preserving UP as the lighting normal.
+        _vertex(st, a_l, Vector2(0, 0)); _vertex(st, b_r, Vector2(1, 1)); _vertex(st, b_l, Vector2(0, 1))
+        _vertex(st, a_l, Vector2(0, 0)); _vertex(st, a_r, Vector2(1, 0)); _vertex(st, b_r, Vector2(1, 1))
     return st.commit()
 
 func _vertex(st: SurfaceTool, p: Vector3, uv: Vector2) -> void:
