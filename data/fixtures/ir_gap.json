@@ -1,0 +1,8 @@
+{
+  "status": "ir_gap",
+  "gap": {
+    "reason": "World IR V2 does not represent exact numeric distance constraints.",
+    "unsupported": ["numeric_distance: 50m"]
+  },
+  "meta": {"request_id":"fake_gap","mode":"edit","route":"bypass"}
+}

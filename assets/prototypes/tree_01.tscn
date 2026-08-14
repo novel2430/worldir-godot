@@ -1,0 +1,35 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototype/world_prototype.gd" id="1"]
+[sub_resource type="StandardMaterial3D" id="MatTrunk"]
+albedo_color = Color(0.28, 0.14, 0.06, 1)
+[sub_resource type="CylinderMesh" id="Trunk"]
+top_radius = 0.28
+bottom_radius = 0.36
+height = 3.0
+material = SubResource("MatTrunk")
+[sub_resource type="StandardMaterial3D" id="MatLeaf"]
+albedo_color = Color(0.10, 0.34, 0.11, 1)
+[sub_resource type="SphereMesh" id="Leaf"]
+radius = 1.15
+height = 2.3
+material = SubResource("MatLeaf")
+[sub_resource type="CapsuleShape3D" id="Shape"]
+radius = 0.45
+height = 3.4
+
+[node name="TreePrototype" type="StaticBody3D"]
+script = ExtResource("1")
+prototype_id = "tree_01"
+semantic_type = "tree"
+placement_radius = 1.25
+clearance = 0.3
+[node name="Trunk" type="MeshInstance3D" parent="."]
+position = Vector3(0, 1.5, 0)
+mesh = SubResource("Trunk")
+[node name="Crown" type="MeshInstance3D" parent="."]
+position = Vector3(0, 3.6, 0)
+mesh = SubResource("Leaf")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 1.7, 0)
+shape = SubResource("Shape")

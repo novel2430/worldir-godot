@@ -1,0 +1,18 @@
+{
+  "status": "ok",
+  "world_ir": {
+    "regions": [
+      {"id":"forest","type":"forest","placement":{"anchor":"west"}},
+      {"id":"coast","type":"coast","placement":{"anchor":"east"}}
+    ],
+    "networks": [{"id":"main_road","type":"road","topology":{"from":"south","to":"north"}}],
+    "entities": [{"id":"church","type":"church","placement":{"anchor":"north","relations":[{"type":"near","target":"main_road"}]}}],
+    "distributions": [
+      {"id":"houses","type":"house","placement":{"relations":[{"type":"along","target":"main_road"}]},"population":{"amount":{"mode":"count","value":12}}},
+      {"id":"trees","type":"tree","placement":{"relations":[{"type":"inside","target":"forest"}]},"population":{"amount":{"mode":"density","value":"high"},"arrangement":{"type":"random"}}}
+    ]
+  },
+  "runtime_bindings": [],
+  "runtime_fact_ops": [{"op":"clear","runtime_fact_id":"clearing_01"}],
+  "meta": {"request_id":"fake_restore","mode":"edit","route":"bypass"}
+}

@@ -1,0 +1,76 @@
+[gd_scene format=3 uid="uid://dficvhot5htvc"]
+
+[ext_resource type="Script" uid="uid://jki1tmx26qs7" path="res://scripts/app/world_coordinator.gd" id="1"]
+[ext_resource type="Script" uid="uid://ctbiqxonjpddt" path="res://scripts/app/world_state.gd" id="2"]
+[ext_resource type="Script" uid="uid://d5jrjxguqc18" path="res://scripts/prototype/prototype_catalog.gd" id="3"]
+[ext_resource type="Script" uid="uid://5u24iwylgkyq" path="res://scripts/runtime/scene_runtime.gd" id="4"]
+[ext_resource type="Script" uid="uid://iy83lnwm0gcw" path="res://scripts/interaction/runtime_fact_manager.gd" id="5"]
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="6"]
+[ext_resource type="PackedScene" path="res://scenes/ui/prompt_panel.tscn" id="7"]
+
+[sub_resource type="Environment" id="Env"]
+background_mode = 1
+background_color = Color(0.18, 0.24, 0.3, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.73, 0.78, 0.82, 1)
+ambient_light_energy = 0.55
+
+[sub_resource type="StandardMaterial3D" id="GroundMat"]
+albedo_color = Color(0.2, 0.22, 0.17, 1)
+
+[sub_resource type="BoxMesh" id="GroundMesh"]
+size = Vector3(160, 0.2, 160)
+
+[sub_resource type="BoxShape3D" id="GroundShape"]
+size = Vector3(160, 0.2, 160)
+
+[node name="Main" type="Node3D" unique_id=1988214654]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1924975738]
+environment = SubResource("Env")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=297099342]
+transform = Transform3D(0.88294756, 0.36994863, -0.2890356, 0, 0.6156615, 0.7880107, 0.46947157, -0.6957722, 0.5435968, 0, 0, 0)
+light_energy = 1.1
+shadow_enabled = true
+
+[node name="BaseGround" type="StaticBody3D" parent="." unique_id=574659913]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.12, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="BaseGround" unique_id=1360565244]
+material_override = SubResource("GroundMat")
+mesh = SubResource("GroundMesh")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BaseGround" unique_id=2057227259]
+shape = SubResource("GroundShape")
+
+[node name="WorldRoot" type="Node3D" parent="." unique_id=1997268314]
+unique_name_in_owner = true
+
+[node name="Player" parent="." unique_id=1467336534 instance=ExtResource("6")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 48)
+
+[node name="WorldState" type="Node" parent="." unique_id=2142624567]
+unique_name_in_owner = true
+script = ExtResource("2")
+
+[node name="PrototypeCatalog" type="Node" parent="." unique_id=2097067346]
+unique_name_in_owner = true
+script = ExtResource("3")
+
+[node name="SceneRuntime" type="Node" parent="." unique_id=642078207]
+unique_name_in_owner = true
+script = ExtResource("4")
+
+[node name="RuntimeFactManager" type="Node" parent="." unique_id=1078958339]
+unique_name_in_owner = true
+script = ExtResource("5")
+
+[node name="WorldCoordinator" type="Node" parent="." unique_id=290845630]
+script = ExtResource("1")
+use_http_compiler = true
+auto_generate_demo = false
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=191063511]
+
+[node name="PromptPanel" parent="UI" unique_id=347949830 instance=ExtResource("7")]

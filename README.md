@@ -1,0 +1,106 @@
+# WorldIR Godot Backend V0
+
+A GDScript-first Godot 4.7 project implementing the architecture baseline:
+
+`Compiler Client → World State → Godot Backend → Resolved World → Scene Runtime`, coordinated transactionally by `WorldCoordinator`.
+
+## Run immediately
+
+1. Extract this folder.
+2. Open `project.godot` in Godot 4.7.x.
+3. Let Godot import resources.
+4. Press **F6/F5** (run project).
+5. The fake compiler automatically generates a playable coastal-town demo.
+6. Move with **WASD or arrow keys**, look with mouse, `Esc` releases mouse.
+
+No external 3D assets and no LLM server are required for the first run. Placeholder TSCN prototypes are included.
+
+## Demo edit flow
+
+The top-left panel drives the same compile boundary that the real server will use.
+
+- Click **Create demo Runtime Fact: clearing_01**.
+- Enter: `把我刚刚砍出来的地方变成墓地`
+- The fake compiler returns `graveyard ↔ clearing_01`; Godot lowers the candidate and commits it.
+- Enter: `恢复我刚刚砍掉的森林` to exercise `runtime_fact_ops.clear`.
+- Enter a prompt containing `50` to see an `ir_gap` response leave the world unchanged.
+
+## Switching to the real compiler server
+
+Select `Main/WorldCoordinator` in `scenes/main.tscn` and enable `use_http_compiler`, or change the exported property in the scene. `HttpCompilerClient` uses:
+
+- `GET /health`
+- `GET /info`
+- `POST /v1/compile`
+
+`WorldCoordinator` now exposes `compiler_base_url` and `compiler_timeout_seconds` in the Inspector. The default URL is `http://127.0.0.1:8787`.
+
+## Replacing placeholder art with GLB
+
+The backend intentionally resolves semantic types to **TSCN prototypes**, not raw GLB.
+
+For a real tree:
+
+1. Copy/import `tree_x.glb` under `assets/raw/`.
+2. Create `assets/prototypes/tree_x.tscn` with a `StaticBody3D` root.
+3. Instance the GLB scene as a child, add/adjust collision.
+4. Attach `scripts/prototype/world_prototype.gd` to the root.
+5. Set `prototype_id`, `semantic_type="tree"`, `placement_radius`, `clearance`.
+6. Add the prototype path and semantic mapping in `scripts/prototype/prototype_catalog.gd`.
+
+No placement/backend/runtime code needs to change.
+
+## Current V0 implementation
+
+Implemented:
+
+- Strict World IR V2 / Runtime Context V1 / CompileResult V1 contract validation at the Compiler boundary.
+- World IR V2 root primitives: Region / Network / Entity / Distribution.
+- Region anchor lowering to concrete polygons.
+- Procedural road/path lowering to deterministic polyline/ribbon geometry.
+- Prototype-aware Entity placement.
+- Distribution `count` / qualitative `density` / `density_profile.gradient` weighted lowering.
+- `inside`, `near`, `far_from`, `along`, `direction_of` placement operators.
+- `random`, `uniform`, `clustered` arrangement.
+- Runtime Binding `at` / `inside` / `near` lowering through Godot-local spatial payloads.
+- Backend capability rejection when an open semantic type has no Godot TSCN prototype (candidate world is not committed).
+- Candidate scene construction before state commit.
+- Fake compiler + HTTP compiler boundary.
+- Playable first-person controller and collision.
+
+Deliberately still simple:
+
+- Region geometry is rectangular; no terrain solver.
+- Roads bend lightly but have no terrain-aware routing.
+- Density gradient uses qualitative weighted sampling; it is intentionally not a numeric density-field solver.
+- Scene transition is an atomic rebuild/swap extension point, not a visual dissolve/growth effect yet.
+- Runtime Fact gameplay aggregation is demonstrated by a deterministic demo fact, not tree-cutting gameplay.
+
+## Smoke checks
+
+Without Godot installed:
+
+```bash
+python3 tools/validate_project.py
+```
+
+With Godot 4.7 available:
+
+```bash
+godot --headless --path . --script tests/test_contract.gd
+godot --headless --path . --script tests/test_backend.gd
+```
+
+## Architecture invariants
+
+- Backend never mutates SceneTree.
+- Scene Runtime never interprets World IR semantic relations.
+- Compiler Client only handles API/JSON contract.
+- Prototype is chosen before placement; solver reads prototype layout metadata.
+- Runtime spatial payload never goes to the Compiler Server.
+- Compile response is a candidate until lowering + scene build succeeds.
+- Resolved World contains value data, never live Node references.
+
+## Contract enforcement
+
+The executable boundary validator lives in `scripts/compiler/contract_validator.gd`. Compiler requests/results are rejected before lowering when they violate the current World IR V2 / Runtime Context V1 / CompileResult V1 contract; structural validity and Godot asset capability are intentionally separate checks.

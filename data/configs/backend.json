@@ -1,0 +1,7 @@
+{
+  "world_size_m": 160,
+  "seed": 1337,
+  "density_counts": {"low": 24, "medium": 52, "high": 90},
+  "near_threshold_m": 20.0,
+  "far_threshold_m": 28.0
+}
