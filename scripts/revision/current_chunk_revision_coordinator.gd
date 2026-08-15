@@ -4,6 +4,7 @@ extends Node
 const ContractValidatorScript = preload("res://scripts/compiler/contract_validator.gd")
 const RevisionTransactionScript = preload("res://scripts/revision/revision_transaction.gd")
 const ChunkRevisionIntegrationScript = preload("res://scripts/revision/chunk_revision_integration.gd")
+const ChunkRebasePlannerScript = preload("res://scripts/revision/chunk_rebase_planner.gd")
 
 const STATE_STABLE := "STABLE"
 const STATE_CAPTURE := "CAPTURE"
@@ -36,6 +37,8 @@ var _request_runtime_context: Dictionary = {}
 var _prepared_transition: Dictionary = {}
 var _candidate_chunk: Variant = null
 var _candidate_facts: Array = []
+var _target_source_revision_at_prepare := -1
+var _target_target_revision_at_prepare := -1
 var _contract_validator := ContractValidatorScript.new()
 
 func configure(
@@ -82,7 +85,13 @@ func submit_prompt(prompt: String) -> bool:
 	last_patch = {}
 	last_error = ""
 	last_preview_report = {}
-	chunk_manager.pin_chunk(transaction.transaction_chunk_coord)
+	var pin_result: Variant = chunk_manager.pin_chunk(transaction.transaction_chunk_coord)
+	if typeof(pin_result) == TYPE_BOOL and not bool(pin_result):
+		transaction.abort()
+		active_transaction = null
+		last_error = "Transaction target could not be pinned"
+		_set_state(STATE_STABLE)
+		return false
 	_request_runtime_context = world_state.runtime_context()
 	_set_state(STATE_COMPILE)
 	compiler.compile_world(prompt, world_state.current_ir, _request_runtime_context)
@@ -112,8 +121,11 @@ func _process_compile_result(result: Dictionary) -> void:
 		return
 
 	var target_coord: Vector2i = active_transaction.transaction_chunk_coord
-	var official_record: Dictionary = chunk_manager.get_record(target_coord)
-	var old_chunk: Variant = official_record.get("resolved_chunk")
+	var official_record: Variant = chunk_manager.get_record(target_coord)
+	if not ChunkRebasePlannerScript.record_exists(official_record):
+		_abort("Transaction target ChunkRecord is unavailable")
+		return
+	var old_chunk: Variant = ChunkRebasePlannerScript.resolved_chunk(official_record)
 	var chunk_root: Node3D = chunk_manager.get_chunk_root(target_coord)
 	if old_chunk == null or not (old_chunk is ResolvedWorld) or chunk_root == null:
 		_abort("Transaction target is not materialized")
@@ -130,14 +142,16 @@ func _process_compile_result(result: Dictionary) -> void:
 		result["world_ir"],
 		chunk_manager.get_active_records()
 	)
+	_target_source_revision_at_prepare = ChunkRebasePlannerScript.source_revision(official_record)
+	_target_target_revision_at_prepare = ChunkRebasePlannerScript.target_revision(official_record)
+	if _target_source_revision_at_prepare != _target_target_revision_at_prepare:
+		_abort("Transaction target became stale before Candidate generation")
+		return
 	var generation_overrides := _generation_overrides(result.get("runtime_bindings", []))
-	var constraints: Dictionary = chunk_manager.get_boundary_constraints(target_coord)
-	_candidate_chunk = chunk_manager.generate_chunk(
+	_candidate_chunk = chunk_manager.generate_candidate(
 		target_coord,
 		active_transaction.candidate_ir,
 		active_transaction.candidate_revision,
-		world_seed,
-		constraints,
 		generation_overrides
 	)
 	if _candidate_chunk == null or not (_candidate_chunk is ResolvedWorld):
@@ -157,6 +171,16 @@ func _process_compile_result(result: Dictionary) -> void:
 	if world_state.current_ir_revision != active_transaction.base_revision:
 		_abort("Official revision changed during PREPARE")
 		return
+	var record_before_apply: Variant = chunk_manager.get_record(target_coord)
+	if (
+		not ChunkRebasePlannerScript.record_exists(record_before_apply)
+		or ChunkRebasePlannerScript.source_revision(record_before_apply)
+			!= _target_source_revision_at_prepare
+		or ChunkRebasePlannerScript.target_revision(record_before_apply)
+			!= _target_target_revision_at_prepare
+	):
+		_abort("Transaction target provenance changed during PREPARE")
+		return
 
 	_set_state(STATE_APPLY)
 	var patch_value: Variant = await scene_runtime.apply_prepared_chunk_transition(
@@ -171,11 +195,24 @@ func _process_compile_result(result: Dictionary) -> void:
 	_set_state(STATE_COMMIT)
 	var committed: bool = active_transaction.commit_to(world_state, _candidate_facts)
 	assert(committed)
-	chunk_manager.install_revision(
-		target_coord,
-		_candidate_chunk,
+	chunk_manager.set_generation_context(
+		world_state.current_ir,
 		active_transaction.candidate_revision
 	)
+	var target_set: bool = chunk_manager.set_target_revision(
+		target_coord,
+		active_transaction.candidate_revision
+	)
+	assert(target_set)
+	var installed: bool = chunk_manager.install_resolved_candidate(
+		target_coord,
+		_candidate_chunk,
+		_target_source_revision_at_prepare,
+		active_transaction.candidate_revision
+	)
+	assert(installed)
+	chunk_root.set_meta("chunk_coord", target_coord)
+	chunk_root.set_meta("ir_revision", active_transaction.candidate_revision)
 	# Preview routing is deliberately post-commit and is not part of the strong
 	# Current transaction failure domain. A only receives latest target/rebuild
 	# requests; its scheduler decides when those Chunks are actually rebuilt.
@@ -203,6 +240,7 @@ func _generation_overrides(runtime_bindings: Array) -> Dictionary:
 		if world_state.spatial_payloads.has(fact_id):
 			payloads[fact_id] = world_state.spatial_payloads[fact_id].duplicate(true)
 	return {
+		"transaction_chunk_coord": active_transaction.transaction_chunk_coord,
 		"runtime_bindings": runtime_bindings.duplicate(true),
 		"spatial_payloads": payloads,
 	}
@@ -230,6 +268,8 @@ func _clear_candidate_state() -> void:
 	_prepared_transition = {}
 	_candidate_chunk = null
 	_candidate_facts = []
+	_target_source_revision_at_prepare = -1
+	_target_target_revision_at_prepare = -1
 	_request_runtime_context = {}
 
 func _set_state(next_state: String) -> void:

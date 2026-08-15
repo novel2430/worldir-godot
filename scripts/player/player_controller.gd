@@ -6,6 +6,10 @@ extends CharacterBody3D
 @export var mouse_sensitivity := 0.0022
 
 @onready var pivot: Node3D = $CameraPivot
+var chunk_manager: ChunkManager = null
+
+func set_chunk_manager(value: ChunkManager) -> void:
+    chunk_manager = value
 
 func _ready() -> void:
     motion_mode = CharacterBody3D.MOTION_MODE_FLOATING
@@ -21,7 +25,7 @@ func _unhandled_input(event: InputEvent) -> void:
     elif event is InputEventMouseButton and event.pressed:
         Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
     var x := 0.0
     var z := 0.0
     var y := 0.0
@@ -36,4 +40,20 @@ func _physics_process(_delta: float) -> void:
     velocity.x = direction.x * move_speed
     velocity.y = y * vertical_speed
     velocity.z = direction.z * move_speed
+    _move_with_chunk_gate(delta)
+
+func _move_with_chunk_gate(delta: float) -> bool:
+    if chunk_manager != null and chunk_manager.initialized:
+        var predicted := global_position + velocity * delta
+        var next_coord := ChunkMath.world_to_chunk(predicted)
+        if (
+            next_coord != chunk_manager.get_current_chunk_coord()
+            and not chunk_manager.prepare_player_entry(next_coord)
+        ):
+            velocity.x = 0.0
+            velocity.z = 0.0
+            return false
     move_and_slide()
+    if chunk_manager != null and chunk_manager.initialized:
+        return chunk_manager.update_player_world_position(global_position)
+    return true

@@ -86,6 +86,24 @@ func request_rebuild(coord: Vector2i, revision: int) -> bool:
 func register_revision_world(revision: int, world_ir: Dictionary) -> void:
 	revision_worlds[revision] = world_ir.duplicate(true)
 
+func set_generation_context(world_ir: Dictionary, revision: int) -> void:
+	register_revision_world(revision, world_ir)
+
+func generate_candidate(
+	coord: Vector2i,
+	world_ir: Dictionary,
+	ir_revision: int,
+	generation_overrides: Dictionary = {}
+):
+	return generate_chunk(
+		coord,
+		world_ir,
+		ir_revision,
+		world_seed,
+		get_boundary_constraints(coord),
+		generation_overrides
+	)
+
 func ensure_latest(coord: Vector2i) -> bool:
 	ensure_latest_calls.append(coord)
 	if not records.has(coord) or ensure_latest_failure_coords.has(coord):
@@ -135,3 +153,22 @@ func install_revision(coord: Vector2i, resolved_chunk: ResolvedWorld, revision: 
 	record["resolved_chunk"] = resolved_chunk
 	record["source_ir_revision"] = revision
 	record["target_ir_revision"] = revision
+
+func install_resolved_candidate(
+	coord: Vector2i,
+	resolved_chunk: ResolvedWorld,
+	source_ir_revision: int,
+	target_ir_revision: int
+) -> bool:
+	if not records.has(coord) or resolved_chunk == null:
+		return false
+	var record: Dictionary = records[coord]
+	if (
+		int(record.get("source_ir_revision", -1)) != source_ir_revision
+		or int(record.get("target_ir_revision", -1)) != target_ir_revision
+		or resolved_chunk.get("coord") != coord
+		or int(resolved_chunk.get("revision")) != target_ir_revision
+	):
+		return false
+	install_revision(coord, resolved_chunk, target_ir_revision)
+	return true

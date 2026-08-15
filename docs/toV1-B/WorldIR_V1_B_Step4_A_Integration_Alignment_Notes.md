@@ -2,7 +2,7 @@
 
 > **记录日期**：2026-08-15  
 > **来源**：Developer B Step 3 — Current Chunk Revision Transaction  
-> **状态**：待 A/B 在 Step 4 开始前冻结具体 API 形状  
+> **状态**：已按 A commit `1372c87` 与 B checkpoint `b410d8f` 完成接口冻结和集成
 > **优先级**：本文只记录尚未冻结的 integration seam，不修改或覆盖现有 Shared Contract / Integration Addendum。
 
 ---
@@ -31,7 +31,7 @@ B owns:
 Revision decision + transaction + Scene rewrite + commit timing
 ```
 
-目前没有架构语义 blocker，但真实 A 接入前仍需冻结三个具体接口。
+目前三个接口已经冻结并完成真实 A 接入，没有遗留架构语义 blocker。
 
 ---
 
@@ -62,16 +62,16 @@ get_chunk_handle(coord)
 1. Transaction pin 期间 handle / root 不失效；
 2. C5 transition 不得搜索或修改 C4/C6；
 3. B 只把 root/handle 传给 SceneRuntime，不读取 A 的 SceneTree 内部布局；
-4. ChunkRoot 本身由 A 管理，B 只修改其 GeneratedChunk 内容。
+4. ChunkRoot 本身由 A 管理，B 只修改其 `GeneratedWorld` 内容。
 ```
 
-Step 3 Fake A 当前工作名：
+真实 A 已冻结为：
 
 ```gdscript
 get_chunk_root(coord)
 ```
 
-该名称不是最终强制名称。
+返回稳定 `Node3D` ChunkRoot；transaction pin 期间不会被 eviction。
 
 ---
 
@@ -92,19 +92,19 @@ generate_chunk(
 
 但当前共同文档尚未冻结 B 如何取得 `boundary_constraints`。
 
-A/B 需要在以下两种方式中冻结一种：
+A/B 已采用以下方式：
 
 ```text
-Option 1 — A 内部收集（推荐）
+Option 1 — A 内部收集（已采用）
 
 B request_generate_chunk(...)
 A 根据 coord 与正式邻居记录自行收集 Boundary Constraints
 
 
-Option 2 — A 暴露只读查询
+同时保留只读诊断查询：
 
-B 调用 A.get_boundary_constraints(coord)
-再原样传回 A.generate_chunk(...)
+B 可调用 A.get_boundary_constraints(coord) 查看 value-data copy，
+但 Candidate generation 直接调用 A.generate_candidate(...)，由 A 内部收集正式邻居约束。
 ```
 
 无论采用哪种方式，都必须保持：
@@ -115,13 +115,14 @@ B 不读取 terrain cache / road state / neighbor private records
 B 不自行推导 Terrain edge / Road exit
 ```
 
-Step 3 Fake A 当前工作名：
+真实 A 方法：
 
 ```gdscript
-get_boundary_constraints(coord)
+generate_candidate(coord, world_ir, revision, generation_overrides={})
+get_boundary_constraints(coord) # read-only diagnostic copy
 ```
 
-Fake 第一版返回空 Dictionary；它只用于保持 GenerateChunk 参数形状。
+`ChunkGenerator.generate_chunk(...)` 仍保留完整 seed / constraints 输入，但 B 不直接读取 A 的生成内部状态。
 
 ---
 
@@ -129,20 +130,15 @@ Fake 第一版返回空 Dictionary；它只用于保持 GenerateChunk 参数形�
 
 Candidate Current Chunk 完成 Transition 后，需要由 A 执行正式 ChunkRecord 安装。
 
-需要冻结语义等价 API：
+真实 A 已冻结 API：
 
 ```gdscript
-install_revision(
+install_resolved_candidate(
     coord,
     candidate_resolved_chunk,
-    candidate_revision
-)
-```
-
-或者：
-
-```gdscript
-commit_generated_chunk(...)
+    source_ir_revision,
+    target_ir_revision
+) -> bool
 ```
 
 该操作必须一次性保证：
@@ -167,16 +163,24 @@ record.authority
 
 ```text
 1. PREPARE 阶段只验证 Candidate 可安装，不修改正式 record；
-2. APPLY 成功后才调用 install；
-3. install 必须是经过 PREPARE 后 effectively no-fail 的同步操作；
+2. APPLY 成功并 commit WorldState 后，依次调用 `set_generation_context`、Current target 更新和 install；
+3. PREPARE 必须验证 source/target 未变化及 Candidate provenance，使 install 成为 effectively no-fail 的同步操作；
 4. install 不得隐式触发 3×3 Preview rebuild；
 5. A 仍是 resolved_chunk / source revision 的唯一正式写方。
 ```
 
-Step 3 Fake A 当前工作名：
+实际调用顺序：
 
 ```gdscript
-install_revision(coord, resolved_chunk, revision)
+world_state.commit_revision(...)
+chunk_manager.set_generation_context(candidate_ir, candidate_revision)
+chunk_manager.set_target_revision(coord, candidate_revision)
+chunk_manager.install_resolved_candidate(
+    coord,
+    candidate,
+    source_revision_at_prepare,
+    candidate_revision
+)
 ```
 
 ---
@@ -191,7 +195,8 @@ get_record(coord)
 get_active_records()
 pin_chunk(coord)
 unpin_chunk(coord)
-generate_chunk(..., generation_overrides={})
+generate_candidate(..., generation_overrides={})
+set_generation_context(world_ir, revision)
 ```
 
 Generation Overrides 继续保持：
@@ -209,11 +214,11 @@ Generation Overrides 继续保持：
 # 6. Step 4 开始前需要冻结的最小决定
 
 ```text
-[ ] ChunkRoot 使用直接 Node3D 还是稳定 ChunkHandle
-[ ] Boundary Constraints 由 GenerateChunk 内部收集，还是通过只读 API 获取
-[ ] Candidate install 的最终方法名与参数
-[ ] Candidate install 的 no-fail / validation 责任边界
-[ ] ResolvedChunk install 后由谁发出 record/revision changed signal（若需要）
+[x] ChunkRoot 使用直接稳定 Node3D
+[x] Boundary Constraints 由 `generate_candidate` 内部收集
+[x] Candidate install 使用 `install_resolved_candidate(coord, candidate, source, target)`
+[x] PREPARE 验证 provenance，install 返回 bool 并在 COMMIT 路径断言成功
+[x] A 在安装后发出 `chunk_record_changed`
 ```
 
 这些决定只影响 Fake A → Real A 的 adapter，不应改变：
@@ -249,4 +254,4 @@ World IR / Compiler Contract
 
 # 8. 一句话对齐结论
 
-> **Step 4 不需要重新设计 Revision Transaction；只需要让真实 A 提供稳定 Chunk handle、A-owned Boundary Constraints，以及 APPLY 成功后的 no-fail Candidate install。**
+> **Step 4 保留原 Revision Transaction；真实 A 通过稳定 ChunkRoot、内部 Boundary Constraints、版本化 generation context 与 provenance-checked Candidate install 接入。**

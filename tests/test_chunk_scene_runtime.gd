@@ -39,8 +39,8 @@ func _test_chunk_scoped_mount_diff_and_transition() -> void:
 
     _expect(runtime.mount_chunk(c5_root, old_c5) != null, "C5 must mount")
     _expect(runtime.mount_chunk(c6_root, c6) != null, "C6 must mount independently")
-    var c5_active := c5_root.get_node("GeneratedChunk") as Node3D
-    var c6_active := c6_root.get_node("GeneratedChunk") as Node3D
+    var c5_active := c5_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D
+    var c6_active := c6_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D
     var c5_active_id := c5_active.get_instance_id()
     var c6_active_id := c6_active.get_instance_id()
     var c6_stable := c6_active.get_node("Entities/stable_church") as Node3D
@@ -65,7 +65,7 @@ func _test_chunk_scoped_mount_diff_and_transition() -> void:
         _expect(_ids(patch.distribution_instances.replaced) == ["trees:replaced"], "Same ID with new prototype must be replaced")
         _expect(_ids(patch.distribution_instances.unchanged) == ["trees:stable"], "Stable population ID must remain unchanged across revisions")
 
-    var c5_after := c5_root.get_node("GeneratedChunk") as Node3D
+    var c5_after := c5_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D
     _expect(c5_after.get_instance_id() == c5_active_id, "Animated transition must patch C5 in place")
     _expect(
         (c5_after.get_node("Entities/moving_church") as Node3D).transform.is_equal_approx(
@@ -76,7 +76,7 @@ func _test_chunk_scoped_mount_diff_and_transition() -> void:
     _expect(not c5_after.has_node("Distributions/trees/trees_removed"), "C5 removed ID must leave the Scene")
     _expect(c5_after.has_node("Distributions/trees/trees_added"), "C5 added ID must enter the Scene")
 
-    var c6_after := c6_root.get_node("GeneratedChunk") as Node3D
+    var c6_after := c6_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D
     _expect(c6_after.get_instance_id() == c6_active_id, "Transitioning C5 must not replace C6 content")
     _expect(
         (c6_after.get_node("Entities/stable_church") as Node3D).get_instance_id() == c6_stable_id,
@@ -89,8 +89,8 @@ func _test_chunk_scoped_mount_diff_and_transition() -> void:
 
     runtime.remove_chunk(c5_root)
     await process_frame
-    _expect(not c5_root.has_node("GeneratedChunk"), "remove_chunk must remove only C5 content")
-    _expect(c6_root.has_node("GeneratedChunk"), "remove_chunk(C5) must leave C6 mounted")
+    _expect(not c5_root.has_node(SceneRuntime.CHUNK_CONTENT_NAME), "remove_chunk must remove only C5 content")
+    _expect(c6_root.has_node(SceneRuntime.CHUNK_CONTENT_NAME), "remove_chunk(C5) must leave C6 mounted")
 
 func _chunk(coord: Vector2i, revision: int, updated: bool):
     var chunk := ResolvedChunkScript.new()

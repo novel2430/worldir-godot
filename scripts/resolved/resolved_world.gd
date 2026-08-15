@@ -2,6 +2,10 @@ class_name ResolvedWorld
 extends Resource
 
 var seed: int = 1
+# Procedural placement may use a Chunk-scoped seed while terrain continues to
+# sample the one global world seed. V0 callers leave both values identical.
+var realization_seed: int = 1
+var environment: Dictionary = {}
 # WorldBackend assigns this from the live backend configuration before lowering.
 var world_bounds: Rect2 = Rect2()
 # Kept as Resource here so headless script entry points do not depend on the

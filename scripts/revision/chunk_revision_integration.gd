@@ -11,13 +11,14 @@ const REQUIRED_PUBLIC_APIS: Array[String] = [
 	"get_active_records",
 	"pin_chunk",
 	"unpin_chunk",
-	"generate_chunk",
+	"generate_candidate",
+	"set_generation_context",
 	"set_target_revision",
 	"request_rebuild",
 	"ensure_latest",
 	"get_chunk_root",
 	"get_boundary_constraints",
-	"install_revision",
+	"install_resolved_candidate",
 ]
 
 signal preview_rebuild_requested(coord: Vector2i, revision: int)
@@ -56,16 +57,12 @@ func publish_committed_revision(
 		"request_failures": [],
 	}
 	for record_value in chunk_manager.get_active_records():
-		if typeof(record_value) != TYPE_DICTIONARY:
+		if not ChunkRebasePlannerScript.record_exists(record_value):
 			continue
-		var record: Dictionary = record_value
-		var coord_value: Variant = record.get("coord")
-		if not (coord_value is Vector2i):
-			continue
-		var coord := coord_value as Vector2i
+		var coord: Vector2i = ChunkRebasePlannerScript.coord(record_value)
 		if coord == transaction_chunk_coord:
 			continue
-		if String(record.get("authority", "")) != ChunkRebasePlannerScript.AUTHORITY_PROVISIONAL:
+		if ChunkRebasePlannerScript.authority(record_value) != ChunkRebasePlannerScript.AUTHORITY_PROVISIONAL:
 			report.preserve.append(coord)
 			continue
 
@@ -73,8 +70,8 @@ func publish_committed_revision(
 		if not _call_succeeded(target_result):
 			_record_request_failure(report, coord, committed_revision, "set_target_revision rejected")
 			continue
-		var updated: Dictionary = chunk_manager.get_record(coord)
-		if int(updated.get("target_ir_revision", -1)) != committed_revision:
+		var updated: Variant = chunk_manager.get_record(coord)
+		if ChunkRebasePlannerScript.target_revision(updated) != committed_revision:
 			_record_request_failure(report, coord, committed_revision, "target revision was not installed")
 			continue
 
@@ -93,8 +90,8 @@ func publish_committed_revision(
 ## Chunk's authority/current status.
 func ensure_latest_before_entry(coord: Vector2i) -> bool:
 	last_entry_error = ""
-	var record_before: Dictionary = chunk_manager.get_record(coord)
-	if record_before.is_empty():
+	var record_before: Variant = chunk_manager.get_record(coord)
+	if not ChunkRebasePlannerScript.record_exists(record_before):
 		return _finish_entry_barrier(coord, false, "ChunkRecord is unavailable")
 	if not ChunkRebasePlannerScript.is_stale(record_before):
 		return _finish_entry_barrier(coord, true, "")
@@ -102,8 +99,11 @@ func ensure_latest_before_entry(coord: Vector2i) -> bool:
 	var ensure_result: Variant = await chunk_manager.ensure_latest(coord)
 	if not _call_succeeded(ensure_result):
 		return _finish_entry_barrier(coord, false, "ensure_latest failed")
-	var record_after: Dictionary = chunk_manager.get_record(coord)
-	if record_after.is_empty() or ChunkRebasePlannerScript.is_stale(record_after):
+	var record_after: Variant = chunk_manager.get_record(coord)
+	if (
+		not ChunkRebasePlannerScript.record_exists(record_after)
+		or ChunkRebasePlannerScript.is_stale(record_after)
+	):
 		return _finish_entry_barrier(coord, false, "Chunk remains stale after ensure_latest")
 	return _finish_entry_barrier(coord, true, "")
 

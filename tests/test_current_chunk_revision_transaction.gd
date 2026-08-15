@@ -34,12 +34,12 @@ func _test_successful_transaction_keeps_captured_target() -> void:
     var c6_root: Node3D = harness.c6_root
     var record_before: Dictionary = manager.get_record(Vector2i(5, 5))
     var old_chunk: Resource = record_before.resolved_chunk
-    var old_c5_active := c5_root.get_node("GeneratedChunk") as Node3D
+    var old_c5_active := c5_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D
     var old_c5_active_id := old_c5_active.get_instance_id()
     var stable_tree := old_c5_active.get_node("Distributions/trees/trees_000") as Node3D
     var stable_tree_id := stable_tree.get_instance_id()
     var removed_tree := old_c5_active.get_node("Distributions/trees/trees_009") as Node3D
-    var c6_active := c6_root.get_node("GeneratedChunk") as Node3D
+    var c6_active := c6_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D
     var c6_active_id := c6_active.get_instance_id()
 
     var outcomes: Array[Dictionary] = []
@@ -88,12 +88,12 @@ func _test_successful_transaction_keeps_captured_target() -> void:
         _expect(overrides.spatial_payloads.has("clearing_01"), "Referenced spatial payload must enter generation_overrides")
         _expect(not state_store.current_ir.has("runtime_bindings"), "Overrides must not be written into World IR")
 
-    var c5_after := c5_root.get_node("GeneratedChunk") as Node3D
+    var c5_after := c5_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D
     _expect(c5_after.get_instance_id() == old_c5_active_id, "Current Chunk rewrite must patch in place, not full refresh")
     _expect((c5_after.get_node("Distributions/trees/trees_000") as Node3D).get_instance_id() == stable_tree_id, "Stable tree identity must survive revision")
     _expect(not is_instance_valid(removed_tree), "Reduced tree count must animate removal")
     _expect(c5_after.has_node("Distributions/houses/houses_005"), "Increased house count must animate additions")
-    _expect((c6_root.get_node("GeneratedChunk") as Node3D).get_instance_id() == c6_active_id, "C6 Scene must remain untouched")
+    _expect((c6_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D).get_instance_id() == c6_active_id, "C6 Scene must remain untouched")
     _expect(coordinator.last_patch.distribution_instances.removed.size() == 5, "Diff must remove only five excess trees")
     _expect(coordinator.last_patch.distribution_instances.added.size() == 4, "Diff must add only four new houses")
 
@@ -122,7 +122,7 @@ func _test_prepare_failure(
     var resolved_before: Resource = record.resolved_chunk
     var source_before: int = record.source_ir_revision
     var target_before: int = record.target_ir_revision
-    var active_before := c5_root.get_node("GeneratedChunk") as Node3D
+    var active_before := c5_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D
     var active_id := active_before.get_instance_id()
     var tree_count := active_before.get_node("Distributions/trees").get_child_count()
     var outcomes: Array[Dictionary] = []
@@ -146,8 +146,8 @@ func _test_prepare_failure(
     _expect(record.resolved_chunk == resolved_before, "%s must preserve official ResolvedChunk" % label)
     _expect(record.source_ir_revision == source_before, "%s must preserve source revision" % label)
     _expect(record.target_ir_revision == target_before, "%s must preserve target revision" % label)
-    _expect((c5_root.get_node("GeneratedChunk") as Node3D).get_instance_id() == active_id, "%s must preserve old Chunk Scene root" % label)
-    _expect(c5_root.get_node("GeneratedChunk/Distributions/trees").get_child_count() == tree_count, "%s must preserve old Chunk Scene objects" % label)
+    _expect((c5_root.get_node(SceneRuntime.CHUNK_CONTENT_NAME) as Node3D).get_instance_id() == active_id, "%s must preserve old Chunk Scene root" % label)
+    _expect(c5_root.get_node("%s/Distributions/trees" % SceneRuntime.CHUNK_CONTENT_NAME).get_child_count() == tree_count, "%s must preserve old Chunk Scene objects" % label)
     if expect_no_generation:
         _expect(generator.calls.is_empty(), "%s must abort before GenerateChunk" % label)
 
@@ -172,6 +172,7 @@ func _create_harness() -> Dictionary:
     case_root.add_child(runtime)
     var generator := FakeChunkGeneratorScript.new()
     var manager := FakeChunkManagerScript.new(generator)
+    manager.world_seed = 7301
     manager.set_current_chunk_coord(Vector2i(5, 5))
     var c5_root := Node3D.new()
     c5_root.name = "Chunk_5_5"
