@@ -6,10 +6,23 @@ const ANCHORS := ["north", "south", "east", "west", "center", "northwest", "nort
 const SPATIAL_SELECTOR_ANCHORS := ["north", "south", "east", "west", "center", "northwest", "northeast", "southwest", "southeast"]
 const DIRECTIONS := ["north", "south", "east", "west", "northwest", "northeast", "southwest", "southeast"]
 const RELATIONS := ["inside", "near", "far_from", "along", "direction_of"]
-const REGION_TYPES := ["town", "village", "forest", "coast", "graveyard", "district", "field", "swamp"]
-const NETWORK_TYPES := ["road", "path"]
-const ENTITY_TYPES := ["church", "lighthouse", "tower", "bridge", "radio_tower", "gas_station"]
-const DISTRIBUTION_TYPES := ["house", "tree", "tombstone", "lamp"]
+const REGION_TYPES := ["coastal_forest", "research_base", "snow_forest"]
+const NETWORK_TYPES := ["path"]
+const ENTITY_TYPES := [
+    "rowboat",
+    "tent",
+    "cabin",
+    "research_station",
+    "radar_tower",
+    "warning_sign",
+    "cargo_truck",
+    "crate",
+    "maritime_memorial",
+    "ruined_archway",
+    "bunker",
+    "concrete_wall",
+]
+const DISTRIBUTION_TYPES := ["tree", "grass", "shrub", "rock"]
 const DENSITIES := ["low", "medium", "high"]
 const ARRANGEMENTS := ["uniform", "random", "clustered"]
 const SELECTOR_TYPES := ["anchor", "near", "far_from", "direction_of"]
@@ -157,11 +170,12 @@ func _validate_entity(value: Variant, path: String, id_kinds: Dictionary, errors
     if typeof(value) != TYPE_DICTIONARY:
         return
     var item: Dictionary = value
-    _exact_keys_subset(item, ["id", "type", "placement"], ["id", "type"], path, errors)
+    _exact_keys_subset(item, ["id", "type", "placement"], ["id", "type", "placement"], path, errors)
     _validate_nonempty_string(item.get("id"), path + ".id", errors)
     _validate_catalog_type(item.get("type"), ENTITY_TYPES, path + ".type", "Entity", errors)
     if item.has("placement"):
         _validate_placement(item["placement"], "entity", path + ".placement", id_kinds, errors)
+        _validate_owner_inside(item["placement"], path + ".placement", id_kinds, errors)
 
 func _validate_network(value: Variant, path: String, id_kinds: Dictionary, errors: PackedStringArray) -> void:
     if typeof(value) != TYPE_DICTIONARY:
@@ -178,11 +192,12 @@ func _validate_distribution(value: Variant, path: String, id_kinds: Dictionary, 
     if typeof(value) != TYPE_DICTIONARY:
         return
     var item: Dictionary = value
-    _exact_keys_subset(item, ["id", "type", "placement", "population"], ["id", "type"], path, errors)
+    _exact_keys_subset(item, ["id", "type", "placement", "population"], ["id", "type", "placement"], path, errors)
     _validate_nonempty_string(item.get("id"), path + ".id", errors)
     _validate_catalog_type(item.get("type"), DISTRIBUTION_TYPES, path + ".type", "Distribution", errors)
     if item.has("placement"):
         _validate_placement(item["placement"], "distribution", path + ".placement", id_kinds, errors)
+        _validate_owner_inside(item["placement"], path + ".placement", id_kinds, errors)
     if item.has("population"):
         _validate_population(item["population"], path + ".population", id_kinds, errors)
 
@@ -250,6 +265,8 @@ func _validate_relation(value: Variant, source_kind: String, path: String, id_ki
         return
     if kind == "inside" and String(id_kinds[target]) != "region":
         errors.append("%s inside.target must be a Region" % path)
+    if kind == "inside" and source_kind == "region":
+        errors.append("%s Region nesting is not supported" % path)
     if kind == "along":
         if not (source_kind in ["entity", "distribution"]):
             errors.append("%s along source must be Entity or Distribution" % path)
@@ -258,6 +275,32 @@ func _validate_relation(value: Variant, source_kind: String, path: String, id_ki
     if kind == "direction_of":
         if typeof(rel.get("direction")) != TYPE_STRING or not (String(rel.get("direction", "")) in DIRECTIONS):
             errors.append("%s.direction is not a valid relation direction" % path)
+
+func _validate_owner_inside(
+    value: Variant,
+    path: String,
+    id_kinds: Dictionary,
+    errors: PackedStringArray
+) -> void:
+    if typeof(value) != TYPE_DICTIONARY:
+        return
+    var inside_targets: Array[String] = []
+    var relations: Variant = (value as Dictionary).get("relations", [])
+    if typeof(relations) == TYPE_ARRAY:
+        for relation in relations:
+            if typeof(relation) != TYPE_DICTIONARY:
+                continue
+            if String(relation.get("type", "")) == "inside":
+                inside_targets.append(String(relation.get("target", "")))
+    if inside_targets.size() != 1:
+        errors.append(
+            "%s must contain exactly one inside relation to its owner Region; found %d"
+            % [path, inside_targets.size()]
+        )
+        return
+    var target := inside_targets[0]
+    if String(id_kinds.get(target, "")) != "region":
+        errors.append("%s owner inside target '%s' must be a Region" % [path, target])
 
 func _validate_population(value: Variant, path: String, id_kinds: Dictionary, errors: PackedStringArray) -> void:
     if typeof(value) != TYPE_DICTIONARY:

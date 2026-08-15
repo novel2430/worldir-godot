@@ -6,14 +6,9 @@ extends RefCounted
 # can spread before it runs out of influence.
 const DEFAULT_REGION_CLAIM_BUDGET_M2 := 3000.0
 const DEFAULT_REGION_CLAIM_BUDGETS_M2 := {
-    "town": 3000.0,
-    "village": 2200.0,
-    "forest": 7800.0,
-    "coast": 6200.0,
-    "graveyard": 1000.0,
-    "district": 2800.0,
-    "field": 6500.0,
-    "swamp": 5400.0,
+    "coastal_forest": 7200.0,
+    "research_base": 5200.0,
+    "snow_forest": 7200.0,
 }
 const BOUNDARY_SEGMENTS := 32
 const BOUNDARY_VARIATION := 0.055

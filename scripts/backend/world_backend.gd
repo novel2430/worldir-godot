@@ -2,19 +2,20 @@ class_name WorldBackend
 extends RefCounted
 
 const TerrainResolverScript = preload("res://scripts/backend/terrain_resolver.gd")
-const CoastResolverScript = preload("res://scripts/backend/coast_resolver.gd")
 const BackendConfigScript = preload("res://scripts/backend/backend_config.gd")
 const RegionClaimResolverScript = preload("res://scripts/backend/region_claim_resolver.gd")
+const OwnerRegionResolverScript = preload("res://scripts/backend/owner_region_resolver.gd")
+const RegionProfileCatalogScript = preload("res://scripts/backend/region_profile_catalog.gd")
 
 var region_lowerer := RegionLowerer.new()
 var network_lowerer := NetworkLowerer.new()
 var entity_lowerer := EntityLowerer.new()
 var distribution_lowerer := DistributionLowerer.new()
 var terrain_resolver: RefCounted = TerrainResolverScript.new()
-var coast_resolver: RefCounted = CoastResolverScript.new()
-var forest_dresser := ForestDresser.new()
 var solver := PlacementSolver.new()
 var region_claim_resolver: RefCounted = RegionClaimResolverScript.new()
+var owner_region_resolver: RefCounted = OwnerRegionResolverScript.new()
+var region_profile_catalog: RefCounted = RegionProfileCatalogScript.new()
 var config: RefCounted
 
 func _init(config_overrides: Dictionary = {}) -> void:
@@ -64,6 +65,9 @@ func lower(
 		return out
 
 	var region_items: Array = world_ir.get("regions", [])
+	if not owner_region_resolver.validate_regions(region_items, ir_kinds):
+		out.errors.append(owner_region_resolver.last_error)
+		return out
 	var resolved_regions_by_id: Dictionary = {}
 	var fixed_region_ids: Dictionary = {}
 	var region_lowering_order := _region_lowering_order(region_items, ir_kinds)
@@ -73,6 +77,15 @@ func lower(
 		if resolved == null:
 			out.errors.append(region_lowerer.last_error if not region_lowerer.last_error.is_empty() else "Region lowering failed")
 			return out
+		var profile: Dictionary = region_profile_catalog.get_profile(resolved.semantic_type)
+		if profile.is_empty():
+			out.errors.append(
+				"Backend capability missing: no RegionProfile for Region '%s' (type='%s')"
+				% [resolved.id, resolved.semantic_type]
+			)
+			return out
+		resolved.profile_id = resolved.semantic_type
+		resolved.profile = profile
 		resolved_regions_by_id[resolved.id] = resolved
 		context.regions[resolved.id] = resolved
 		if not binding.is_empty() or _is_single_unconstrained_region(item, region_items.size()):
@@ -101,7 +114,11 @@ func lower(
 
 	for item in world_ir.get("entities", []):
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
-		var resolved := entity_lowerer.lower(item, catalog, solver, context, binding)
+		var owner_region: Dictionary = owner_region_resolver.resolve(item, context, "Entity")
+		if owner_region.is_empty():
+			out.errors.append(owner_region_resolver.last_error)
+			continue
+		var resolved := entity_lowerer.lower(item, catalog, solver, context, owner_region, binding)
 		if resolved == null:
 			out.errors.append(entity_lowerer.last_error if not entity_lowerer.last_error.is_empty() else "Entity lowering failed")
 			continue
@@ -110,20 +127,22 @@ func lower(
 
 	for item in world_ir.get("distributions", []):
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
-		var resolved := distribution_lowerer.lower(item, catalog, solver, context, binding)
+		var owner_region: Dictionary = owner_region_resolver.resolve(item, context, "Distribution")
+		if owner_region.is_empty():
+			out.errors.append(owner_region_resolver.last_error)
+			continue
+		var resolved := distribution_lowerer.lower(item, catalog, solver, context, owner_region, binding)
 		if resolved == null:
 			out.errors.append(distribution_lowerer.last_error if not distribution_lowerer.last_error.is_empty() else "Distribution lowering failed")
 			continue
 		out.distributions.append(resolved)
 		context.distributions[resolved.id] = resolved
 
-	# Dressing is derived only after every explicit semantic object has claimed
-	# occupancy. It is backend-owned, best effort, and cannot fail World lowering.
+	# RegionProfile controls only how explicit IR objects look. It never creates
+	# semantic vegetation, rocks, props or entities on behalf of a Region.
 	if out.errors.is_empty():
-		out.waters = coast_resolver.resolve(out)
 		out.terrain = terrain_resolver.resolve(out, catalog)
 		terrain_resolver.conform_world(out)
-		forest_dresser.dress(out, catalog, solver)
 
 	return out
 

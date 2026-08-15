@@ -8,7 +8,7 @@ func create_demo_clearing() -> void:
         "id": "clearing_01",
         "kind": "marked_area",
         "mark": "cleared",
-        "location": {"inside": "forest", "anchor": "east"},
+            "location": {"inside": "coastal_region", "anchor": "east"},
         "affected_type": "tree",
         "count": 23,
     }

@@ -97,6 +97,11 @@ env/
 *.log
 logs/
 
+# OwenG contains a source-art category named "logs"; it is asset data, not
+# runtime log output.
+!assets/oweng/props/logs/
+!assets/oweng/props/logs/**
+
 
 # ============================================================
 # Local environment / secrets

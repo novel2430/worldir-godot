@@ -1,0 +1,24 @@
+{
+  "status": "ok",
+  "world_ir": {
+    "regions": [
+      {"id":"coastal_region","type":"coastal_forest","placement":{"anchor":"west"}},
+      {"id":"research_region","type":"research_base","placement":{"anchor":"center"}},
+      {"id":"snow_region","type":"snow_forest","placement":{"anchor":"east"}}
+    ],
+    "networks": [
+      {"id":"main_path","type":"path","topology":{"from":"west","to":"east","via":["research_region"]}}
+    ],
+    "entities": [
+      {"id":"supply_crate","type":"crate","placement":{"relations":[{"type":"inside","target":"research_region"},{"type":"near","target":"main_path"}]}}
+    ],
+    "distributions": [
+      {"id":"coastal_trees","type":"tree","placement":{"relations":[{"type":"inside","target":"coastal_region"}]},"population":{"amount":{"mode":"count","value":8}}},
+      {"id":"research_rocks","type":"rock","placement":{"relations":[{"type":"inside","target":"research_region"}]},"population":{"amount":{"mode":"count","value":5},"arrangement":{"type":"uniform"}}},
+      {"id":"snow_trees","type":"tree","placement":{"relations":[{"type":"inside","target":"snow_region"}]},"population":{"amount":{"mode":"count","value":8}}}
+    ]
+  },
+  "runtime_bindings": [],
+  "runtime_fact_ops": [],
+  "meta": {"request_id":"fake_oweng_baseline","mode":"initial"}
+}

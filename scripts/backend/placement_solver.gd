@@ -5,6 +5,7 @@ const MAX_ATTEMPTS := 180
 const NEAR_THRESHOLD_M := 20.0
 const FAR_THRESHOLD_M := 28.0
 const ALONG_THRESHOLD_M := 14.0
+const DEFAULT_NETWORK_CLEARANCE_M := 0.45
 
 var world_bounds := Rect2()
 var near_threshold_m := NEAR_THRESHOLD_M
@@ -117,6 +118,20 @@ func try_resolve_candidate(
 
 func is_candidate_valid(p: Vector2, placement: Dictionary, radius: float, context: Dictionary) -> bool:
     if not is_semantically_valid(p, placement, context):
+        return false
+    var relations: Array = placement.get("relations", [])
+    var explicitly_along_network := relations.any(func(relation: Dictionary) -> bool:
+        return String(relation.get("type", "")) == "along"
+    )
+    if (
+        not explicitly_along_network
+        and overlaps_networks(
+            p,
+            radius,
+            (context.get("networks", {}) as Dictionary).values(),
+            DEFAULT_NETWORK_CLEARANCE_M
+        )
+    ):
         return false
     if overlaps(p, radius):
         return false

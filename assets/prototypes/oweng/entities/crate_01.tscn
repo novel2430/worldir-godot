@@ -1,0 +1,29 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototype/world_prototype.gd" id="1_script"]
+
+[sub_resource type="StandardMaterial3D" id="CrateMaterial"]
+albedo_color = Color(0.34, 0.19, 0.085, 1)
+roughness = 0.88
+
+[sub_resource type="BoxMesh" id="CrateMesh"]
+material = SubResource("CrateMaterial")
+size = Vector3(0.8253, 0.3497, 0.409)
+
+[sub_resource type="BoxShape3D" id="CrateShape"]
+size = Vector3(0.8253, 0.3497, 0.409)
+
+[node name="OwenGCrate01" type="StaticBody3D"]
+script = ExtResource("1_script")
+prototype_id = "oweng_crate_01"
+semantic_type = "crate"
+placement_radius = 0.461
+clearance = 0.15
+
+[node name="CrateMesh" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.17485, 0)
+mesh = SubResource("CrateMesh")
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.17485, 0)
+shape = SubResource("CrateShape")

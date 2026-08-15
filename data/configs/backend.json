@@ -6,14 +6,9 @@
   "along_threshold_m": 14.0,
   "default_region_claim_budget_m2": 3000.0,
   "region_claim_budgets_m2": {
-    "town": 3000.0,
-    "village": 2200.0,
-    "forest": 7800.0,
-    "coast": 6200.0,
-    "graveyard": 1000.0,
-    "district": 2800.0,
-    "field": 6500.0,
-    "swamp": 5400.0
+    "coastal_forest": 7200.0,
+    "research_base": 5200.0,
+    "snow_forest": 7200.0
   },
   "default_population_budget": 12,
   "random_packing_loss": 1.2,
@@ -23,9 +18,9 @@
     "high": 0.45
   },
   "population_caps": {
-    "tree": 200,
-    "house": 60,
-    "tombstone": 150,
-    "lamp": 100
+    "tree": 80,
+    "grass": 180,
+    "shrub": 100,
+    "rock": 80
   }
 }

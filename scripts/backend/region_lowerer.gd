@@ -10,7 +10,7 @@ const EDGE_SEGMENTS: int = 14
 const REGION_NOISE_RATIO: float = 0.10
 const REGION_NOISE_MIN_M: float = 2.0
 const REGION_NOISE_MAX_M: float = 8.0
-const LARGE_SCALE_TYPES: Array[String] = ["forest", "coast", "swamp", "field"]
+const LARGE_SCALE_TYPES: Array[String] = ["coastal_forest", "research_base", "snow_forest"]
 
 var binding_resolver = RuntimeBindingResolverScript.new()
 var last_error: String = ""
@@ -59,26 +59,9 @@ func lower(
         last_error = "Placement failed for Region '%s': no geometry satisfies all placement constraints" % out.id
         return null
 
-    var inside_target: String = _relation_target(placement.get("relations", []), "inside")
-    var inside_region: ResolvedRegion = context.get("regions", {}).get(inside_target)
-    if inside_region != null:
-        rect = _fit_rect_inside_polygon(rect, inside_region.polygon)
-        if not rect.has_area():
-            last_error = "Placement failed for Region '%s': footprint cannot fit inside Region '%s'" % [out.id, inside_target]
-            return null
-
-    var coast_edge: String = _coast_edge_direction(out.semantic_type, placement)
-    if not coast_edge.is_empty():
-        rect = _attach_rect_to_edge(rect, coast_edge, solver.world_bounds)
-
     var base_seed: int = int(context.get("seed", 0))
     var region_seed: int = base_seed ^ int(out.id.hash())
-    out.polygon = _irregular_polygon(rect, solver.world_bounds, region_seed, coast_edge)
-
-    if inside_region != null and not _polygon_inside(out.polygon, inside_region.polygon):
-        # Irregularization is inward-only, so this should be rare. Preserve the
-        # semantic constraint rather than accepting decorative noise that escapes.
-        out.polygon = _rect_polygon(rect)
+    out.polygon = _irregular_polygon(rect, solver.world_bounds, region_seed, "")
 
     out.surface_kind = out.semantic_type
     return out
@@ -98,39 +81,16 @@ func _resolve_semantic_rect(
     context: Dictionary
 ) -> Rect2:
     var relations: Array = placement.get("relations", [])
-    var inside_target: String = _relation_target(relations, "inside")
-
-    var coastal_neighbor := _landward_near_coast_rect(
-        semantic_type,
-        placement,
-        solver,
-        context
-    )
-    if coastal_neighbor.has_area():
-        return coastal_neighbor
 
     # Environmental Regions are territories, not 30x30 objects. A simple anchor
     # or direction_of relation is enough to define a large-scale preference field.
-    if _is_large_scale(semantic_type) and inside_target.is_empty() and _field_relations_only(relations):
+    if _is_large_scale(semantic_type) and _field_relations_only(relations):
         var field_rect: Rect2 = _large_scale_preference_rect(semantic_type, placement, solver, context)
         if field_rect.has_area():
             return field_rect
 
     var region_size: Vector2 = _region_size_prior(semantic_type, solver.world_bounds.size)
     var preferred: Rect2 = Rect2()
-
-    if not inside_target.is_empty():
-        var target_region: ResolvedRegion = context.get("regions", {}).get(inside_target)
-        if target_region == null:
-            return Rect2()
-        var target_rect: Rect2 = solver.polygon_aabb(target_region.polygon)
-        region_size = Vector2(
-            minf(region_size.x, target_rect.size.x * 0.55),
-            minf(region_size.y, target_rect.size.y * 0.55)
-        )
-        preferred = _center_domain_for_contained_rect(target_rect, region_size)
-        if not preferred.has_area():
-            return Rect2()
 
     if placement.has("anchor"):
         var anchor_rect: Rect2 = solver.anchor_rect(String(placement.get("anchor", "whole")))
@@ -174,107 +134,6 @@ func _resolve_semantic_rect(
     var center_point: Vector2 = candidate["position"]
     return _clamp_rect(Rect2(center_point - region_size * 0.5, region_size), solver.world_bounds)
 
-func _landward_near_coast_rect(
-    semantic_type: String,
-    placement: Dictionary,
-    solver: PlacementSolver,
-    context: Dictionary
-) -> Rect2:
-    var relations: Array = placement.get("relations", [])
-    # Keep this V0 realization deliberately narrow: one unanchored Region whose
-    # only relation is near a resolved Coast. More complex conjunctions continue
-    # through the generic constraint path rather than silently losing semantics.
-    if semantic_type == "coast" or placement.has("anchor") or relations.size() != 1:
-        return Rect2()
-    var relation: Dictionary = relations[0]
-    if String(relation.get("type", "")) != "near":
-        return Rect2()
-    var target_id := String(relation.get("target", ""))
-    var coast: ResolvedRegion = context.get("regions", {}).get(target_id)
-    if coast == null or coast.semantic_type != "coast" or coast.polygon.size() < 3:
-        return Rect2()
-
-    var bounds := solver.world_bounds
-    var coast_rect := solver.polygon_aabb(coast.polygon)
-    var coast_edge := _resolved_coast_edge(target_id, coast_rect, bounds, context)
-    if coast_edge.is_empty():
-        return Rect2()
-    var size := _region_size_prior(semantic_type, bounds.size)
-    var gap := clampf(solver.near_threshold_m * 0.25, 2.0, 6.0)
-    var position := Vector2.ZERO
-    match coast_edge:
-        "east":
-            var available := coast_rect.position.x - bounds.position.x - gap
-            size.x = minf(size.x, available)
-            position = Vector2(
-                coast_rect.position.x - gap - size.x,
-                coast_rect.get_center().y - size.y * 0.5
-            )
-        "west":
-            var available := bounds.end.x - coast_rect.end.x - gap
-            size.x = minf(size.x, available)
-            position = Vector2(
-                coast_rect.end.x + gap,
-                coast_rect.get_center().y - size.y * 0.5
-            )
-        "north":
-            var available := bounds.end.y - coast_rect.end.y - gap
-            size.y = minf(size.y, available)
-            position = Vector2(
-                coast_rect.get_center().x - size.x * 0.5,
-                coast_rect.end.y + gap
-            )
-        "south":
-            var available := coast_rect.position.y - bounds.position.y - gap
-            size.y = minf(size.y, available)
-            position = Vector2(
-                coast_rect.get_center().x - size.x * 0.5,
-                coast_rect.position.y - gap - size.y
-            )
-    if size.x < 4.0 or size.y < 4.0:
-        return Rect2()
-    return _clamp_rect(Rect2(position, size), bounds)
-
-func _resolved_coast_edge(
-    coast_id: String,
-    rect: Rect2,
-    bounds: Rect2,
-    context: Dictionary
-) -> String:
-    # A large Coast can legitimately span the complete cross-axis and therefore
-    # touch three world edges (for example an east Coast also touches north and
-    # south). Its explicit cardinal realization is less ambiguous than trying to
-    # infer one unique edge from that AABB. Still verify that the resolved polygon
-    # actually reaches the declared boundary before using it.
-    var coast_ir: Dictionary = context.get("ir_objects", {}).get(coast_id, {})
-    var placement: Dictionary = coast_ir.get("placement", {})
-    var declared_edge := _coast_edge_direction("coast", placement)
-    if not declared_edge.is_empty() and _rect_touches_edge(rect, bounds, declared_edge):
-        return declared_edge
-
-    return _resolved_boundary_edge(rect, bounds)
-
-func _rect_touches_edge(rect: Rect2, bounds: Rect2, edge: String) -> bool:
-    const EDGE_EPSILON := 0.2
-    match edge:
-        "west": return absf(rect.position.x - bounds.position.x) <= EDGE_EPSILON
-        "east": return absf(rect.end.x - bounds.end.x) <= EDGE_EPSILON
-        "north": return absf(rect.position.y - bounds.position.y) <= EDGE_EPSILON
-        "south": return absf(rect.end.y - bounds.end.y) <= EDGE_EPSILON
-    return false
-
-func _resolved_boundary_edge(rect: Rect2, bounds: Rect2) -> String:
-    var contacts: Array[String] = []
-    if _rect_touches_edge(rect, bounds, "west"):
-        contacts.append("west")
-    if _rect_touches_edge(rect, bounds, "east"):
-        contacts.append("east")
-    if _rect_touches_edge(rect, bounds, "north"):
-        contacts.append("north")
-    if _rect_touches_edge(rect, bounds, "south"):
-        contacts.append("south")
-    return contacts[0] if contacts.size() == 1 else ""
-
 func _large_scale_preference_rect(
     semantic_type: String,
     placement: Dictionary,
@@ -299,7 +158,7 @@ func _large_scale_preference_rect(
     )
 
 func _directional_field_rect(
-    semantic_type: String,
+    _semantic_type: String,
     target: String,
     direction: String,
     solver: PlacementSolver,
@@ -311,8 +170,8 @@ func _directional_field_rect(
     var gap_y: float = bounds.size.y * 0.04
     var cross_w: float = bounds.size.x * 0.92
     var cross_h: float = bounds.size.y * 0.92
-    var max_horizontal_fraction: float = 0.38 if semantic_type == "coast" else 0.48
-    var max_vertical_fraction: float = 0.38 if semantic_type == "coast" else 0.48
+    var max_horizontal_fraction := 0.48
+    var max_vertical_fraction := 0.48
 
     match direction:
         "west":
@@ -361,14 +220,8 @@ func _direction_zone_rect(target: String, direction: String, solver: PlacementSo
 
 func _region_size_prior(semantic_type: String, world_size: Vector2) -> Vector2:
     match semantic_type:
-        "forest", "coast", "swamp", "field":
-            return Vector2(world_size.x * 0.38, world_size.y * 0.82)
-        "town":
-            return Vector2(world_size.x * 0.30, world_size.y * 0.38)
-        "village":
-            return Vector2(world_size.x * 0.24, world_size.y * 0.30)
-        "graveyard":
-            return Vector2(world_size.x * 0.16, world_size.y * 0.20)
+        "coastal_forest", "research_base", "snow_forest":
+            return Vector2(world_size.x * 0.32, world_size.y * 0.82)
         _:
             return Vector2(world_size.x * 0.24, world_size.y * 0.30)
 
@@ -409,57 +262,6 @@ func _irregular_polygon(rect: Rect2, world_bounds: Rect2, seed_value: int, force
             p.y = clampf(p.y, world_bounds.position.y, world_bounds.end.y)
             points.append(p)
     return points
-
-func _coast_edge_direction(semantic_type: String, placement: Dictionary) -> String:
-    if semantic_type != "coast":
-        return ""
-    var anchor: String = String(placement.get("anchor", ""))
-    if anchor in ["north", "south", "east", "west"]:
-        return anchor
-    var direction_relation: Dictionary = _first_relation(placement.get("relations", []), "direction_of")
-    var direction: String = String(direction_relation.get("direction", ""))
-    if direction in ["north", "south", "east", "west"]:
-        return direction
-    return ""
-
-func _attach_rect_to_edge(rect: Rect2, edge: String, bounds: Rect2) -> Rect2:
-    var out: Rect2 = _clamp_rect(rect, bounds)
-    match edge:
-        "west": out.position.x = bounds.position.x
-        "east": out.position.x = bounds.end.x - out.size.x
-        "north": out.position.y = bounds.position.y
-        "south": out.position.y = bounds.end.y - out.size.y
-    return _clamp_rect(out, bounds)
-
-func _fit_rect_inside_polygon(rect: Rect2, polygon: PackedVector2Array) -> Rect2:
-    var current: Rect2 = rect
-    for _attempt in range(10):
-        if _rect_inside_polygon(current, polygon):
-            return current
-        var next_size: Vector2 = current.size * 0.84
-        if next_size.x < 4.0 or next_size.y < 4.0:
-            break
-        current = Rect2(current.get_center() - next_size * 0.5, next_size)
-    return Rect2()
-
-func _rect_inside_polygon(rect: Rect2, polygon: PackedVector2Array) -> bool:
-    var inset: float = 0.02
-    var corners: Array[Vector2] = [
-        rect.position + Vector2(inset, inset),
-        Vector2(rect.end.x - inset, rect.position.y + inset),
-        rect.end - Vector2(inset, inset),
-        Vector2(rect.position.x + inset, rect.end.y - inset),
-    ]
-    for corner in corners:
-        if not Geometry2D.is_point_in_polygon(corner, polygon):
-            return false
-    return true
-
-func _polygon_inside(source: PackedVector2Array, target: PackedVector2Array) -> bool:
-    for point in source:
-        if not Geometry2D.is_point_in_polygon(point, target):
-            return false
-    return true
 
 func _rect_polygon(rect: Rect2) -> PackedVector2Array:
     return PackedVector2Array([

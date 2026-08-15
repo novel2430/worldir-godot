@@ -6,8 +6,8 @@ const ResolvedTerrainResource = preload("res://scripts/resolved/resolved_terrain
 const GRID_SIZE := 129
 const ROAD_SURFACE_OFFSET := 0.025
 const INSTANCE_SURFACE_OFFSET := 0.02
-const REGION_OUTER_BLEND_M := 3.5
-const REGION_INNER_BLEND_M := 5.5
+const REGION_OUTER_BLEND_M := 14.0
+const REGION_INNER_BLEND_M := 8.0
 const ROAD_SHOULDER_M := 2.6
 const ROAD_TERRAIN_BLEND_M := 3.4
 const BUILDING_DIRT_FADE_M := 2.3
@@ -18,6 +18,8 @@ const COAST_UNDERWATER_SLOPE := 0.035
 const BASE_HEIGHT_LIMIT := 2.8
 const FOREST_HEIGHT_LIMIT := 3.55
 const FOREST_RELIEF_STRENGTH := 0.78
+
+var region_profiles := RegionProfileCatalog.new()
 
 func resolve(world: ResolvedWorld, catalog: PrototypeCatalog) -> Resource:
     var terrain: Resource = ResolvedTerrainResource.new()
@@ -63,20 +65,12 @@ func conform_world(world: ResolvedWorld) -> void:
             instance["transform"] = transform
 
 func _surface_masks(point: Vector2, world: ResolvedWorld, buildings: Array) -> Color:
-    var forest := 0.0
-    var settlement := 0.0
-    var coast := 0.0
-    for region: ResolvedRegion in world.regions:
-        var influence := _region_influence(point, region.polygon)
-        match region.semantic_type:
-            "forest", "swamp": forest = maxf(forest, influence)
-            "town", "village", "district": settlement = maxf(settlement, influence)
-            "coast": coast = maxf(coast, influence)
+    var region_weights := _region_weights(point, world.regions)
 
     for water in world.waters:
         var shore_distance: float = water.signed_distance_to_shore(point)
         var beach_influence: float = smoothstep(-18.0, -5.0, shore_distance) * water.cross_span_influence(point)
-        coast = maxf(coast, beach_influence)
+        region_weights.b = maxf(region_weights.b, beach_influence)
 
     var local_dirt := _road_influence(point, world.networks)
     for building in buildings:
@@ -87,7 +81,7 @@ func _surface_masks(point: Vector2, world: ResolvedWorld, buildings: Array) -> C
         if road_point != Vector2.INF:
             var path_distance := point.distance_to(Geometry2D.get_closest_point_to_segment(point, center, road_point))
             local_dirt = maxf(local_dirt, 1.0 - smoothstep(0.55, 1.45, path_distance))
-    return Color(forest, settlement, coast, clampf(local_dirt, 0.0, 1.0))
+    return Color(region_weights.r, region_weights.g, region_weights.b, clampf(local_dirt, 0.0, 1.0))
 
 func _environment_height(point: Vector2, world: ResolvedWorld, masks: Color) -> float:
     var phase := _seed_phase(world.seed)
@@ -100,32 +94,32 @@ func _environment_height(point: Vector2, world: ResolvedWorld, masks: Color) -> 
         sin(point.x * 0.071 - point.y * 0.043 + phase * 2.1) * 0.32
         + cos(point.x * 0.049 + point.y * 0.061 - phase) * 0.24
     )
-    var height := broad + detail
-
-    # Forest keeps the shared macro landform, then adds a slower rolling ridge
-    # and amplifies some mid-frequency variation. The resolved forest mask
-    # feathers this personality at the Region edge; roads and building pads are
-    # graded afterward and therefore remain usable inside a hilly forest.
-    var forest_relief := (
+    var rolling := (
         sin(point.x * 0.041 + point.y * 0.026 + phase * 0.61) * 0.56
         + cos(point.x * 0.019 - point.y * 0.044 - phase * 1.23) * 0.42
         + detail * 0.48
     )
-    height += forest_relief * masks.r * FOREST_RELIEF_STRENGTH
+    # Each profile produces a height character from the same continuous noise
+    # field. Blending the resulting heights (rather than stitching meshes) keeps
+    # the final one-grid terrain continuous through Region transition bands.
+    var coastal_height := _profile_height("coastal_forest", broad, detail, rolling)
+    var research_height := _profile_height("research_base", broad, detail, rolling)
+    var snow_height := _profile_height("snow_forest", broad, detail, rolling)
+    return coastal_height * masks.r + research_height * masks.g + snow_height * masks.b
 
-    # Region personality belongs to the terrain realization. Local road and
-    # building grading is applied in separate passes so it can use their true
-    # resolved geometry instead of treating the dirt-color mask as elevation.
-    for region: ResolvedRegion in world.regions:
-        if region.semantic_type != "town" and region.semantic_type != "village" and region.semantic_type != "district":
-            continue
-        var influence := _region_influence(point, region.polygon)
-        if influence <= 0.0:
-            continue
-        var center := _polygon_center(region.polygon)
-        var target := _macro_height(center, world.seed)
-        height = lerpf(height, target, influence * 0.82)
-    var height_limit := lerpf(BASE_HEIGHT_LIMIT, FOREST_HEIGHT_LIMIT, masks.r)
+func _profile_height(
+    region_type: String,
+    broad: float,
+    detail: float,
+    rolling: float
+) -> float:
+    var terrain: Dictionary = region_profiles.get_profile(region_type).get("terrain", {})
+    var height := (
+        broad * float(terrain.get("macro_scale", 0.4))
+        + detail * float(terrain.get("detail_scale", 0.15))
+        + rolling * float(terrain.get("rolling_scale", 0.2))
+    )
+    var height_limit := float(terrain.get("height_limit", BASE_HEIGHT_LIMIT))
     return clampf(height, -height_limit, height_limit)
 
 func _shape_coasts(point: Vector2, height: float, world: ResolvedWorld) -> float:
@@ -199,19 +193,6 @@ func _building_influences(world: ResolvedWorld, catalog: PrototypeCatalog) -> Ar
             maxf(footprint.x, footprint.y) * 0.5 + 1.0,
             world.networks
         ))
-    for distribution: ResolvedDistribution in world.distributions:
-        if distribution.semantic_type != "house":
-            continue
-        for instance in distribution.instances:
-            var meta := catalog.get_metadata(String(instance["prototype_id"]))
-            var footprint: Vector2 = meta.get("visual_footprint", Vector2.ONE * 4.0)
-            var transform: Transform3D = instance["transform"]
-            var scale := transform.basis.get_scale().x
-            result.append(_building_influence(
-                Vector2(transform.origin.x, transform.origin.z),
-                maxf(footprint.x, footprint.y) * scale * 0.5 + 0.8,
-                world.networks
-            ))
     return result
 
 func _building_influence(center: Vector2, radius: float, networks: Array) -> Dictionary:
@@ -246,16 +227,42 @@ func _surface_masks_without_buildings(point: Vector2, world: ResolvedWorld) -> C
     return result
 
 func _surface_masks_without_local_dirt(point: Vector2, world: ResolvedWorld) -> Color:
-    var forest := 0.0
-    var settlement := 0.0
-    var coast := 0.0
-    for region: ResolvedRegion in world.regions:
+    return _region_weights(point, world.regions)
+
+func _region_weights(point: Vector2, regions: Array) -> Color:
+    var weights := Color(0.0, 0.0, 0.0, 0.0)
+    for region: ResolvedRegion in regions:
         var influence := _region_influence(point, region.polygon)
         match region.semantic_type:
-            "forest", "swamp": forest = maxf(forest, influence)
-            "town", "village", "district": settlement = maxf(settlement, influence)
-            "coast": coast = maxf(coast, influence)
-    return Color(forest, settlement, coast, 0.0)
+            "coastal_forest": weights.r = maxf(weights.r, influence)
+            "research_base": weights.g = maxf(weights.g, influence)
+            "snow_forest": weights.b = maxf(weights.b, influence)
+    # A low proximity floor prevents a hard switch where two finite transition
+    # bands do not quite touch (for example beyond the short ends of two claims).
+    # Ownership remains polygon-based; this floor affects only visual weights.
+    var proximity := _nearest_region_weights(point, regions)
+    weights.r = maxf(weights.r, proximity.r * 0.16)
+    weights.g = maxf(weights.g, proximity.g * 0.16)
+    weights.b = maxf(weights.b, proximity.b * 0.16)
+    var total := weights.r + weights.g + weights.b
+    if total > 0.0001:
+        weights.r /= total
+        weights.g /= total
+        weights.b /= total
+    return weights
+
+func _nearest_region_weights(point: Vector2, regions: Array) -> Color:
+    var weights := Color(0.0, 0.0, 0.0, 0.0)
+    for region: ResolvedRegion in regions:
+        if region.polygon.size() < 3:
+            continue
+        var distance := _distance_to_polygon_edge(point, region.polygon)
+        var influence := exp(-distance / 22.0)
+        match region.semantic_type:
+            "coastal_forest": weights.r = maxf(weights.r, influence)
+            "research_base": weights.g = maxf(weights.g, influence)
+            "snow_forest": weights.b = maxf(weights.b, influence)
+    return weights
 
 func _road_influence(point: Vector2, networks: Array) -> float:
     var result := 0.0

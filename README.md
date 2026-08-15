@@ -10,19 +10,19 @@ A GDScript-first Godot 4.7 project implementing the architecture baseline:
 2. Open `project.godot` in Godot 4.7.x.
 3. Let Godot import resources.
 4. Press **F6/F5** (run project).
-5. The fake compiler automatically generates a playable coastal-town demo.
+5. The fake compiler automatically generates the OwenG semantic-baseline demo.
 6. Move with **WASD or arrow keys**, look with mouse, `Esc` releases mouse.
 
-No external 3D assets and no LLM server are required for the first run. The repository includes a small KayKit low-poly baseline plus local placeholder prototypes.
+No external OwenG checkout or LLM server is required for the first run. Reusable OwenG art is namespaced under `assets/oweng/` and the active owner-aware policies use those local models and PBR ground textures.
 
 ## Demo edit flow
 
 The top-left panel drives the same compile boundary that the real server will use.
 
-- Click **Create demo Runtime Fact: clearing_01**.
-- Enter: `把我刚刚砍出来的地方变成墓地`
-- The fake compiler returns `graveyard ↔ clearing_01`; Godot lowers the candidate and commits it.
-- Enter: `恢复我刚刚砍掉的森林` to exercise `runtime_fact_ops.clear`.
+- The initial fake compile returns the complete `coastal_forest`, `research_base`, and `snow_forest` fixture with one explicit path and Region-owned Entity/Distribution objects.
+- Prompt `雪林里的石头少一点` (or an English equivalent containing “snow”, “rock”, and “less/fewer”) to change `snow_rocks` from high to medium density.
+- Prompt `海岸森林的树多一点` (or an English equivalent containing “coastal”, “tree”, and “more”) to raise `coastal_trees` to high density.
+- Other subsequent prompts echo the current IR, keeping the no-op Scene Diff / Transition path testable.
 - Enter a prompt containing `50` to see an `ir_gap` response leave the world unchanged.
 
 ## Switching to the real compiler server
@@ -35,11 +35,11 @@ Select `Main/WorldCoordinator` in `scenes/main.tscn` and enable `use_http_compil
 
 `WorldCoordinator` now exposes `compiler_base_url` and `compiler_timeout_seconds` in the Inspector. The default URL is `http://127.0.0.1:8787`.
 
-## Replacing placeholder art with GLB
+## Adding another prototype
 
-The backend intentionally resolves semantic types to **TSCN prototypes**, not raw GLB.
+The backend resolves semantic types through PrototypeCatalog descriptors or existing TSCN prototypes; lowerers never own raw asset paths.
 
-For a real tree:
+For another manually wrapped prototype:
 
 1. Copy/import `tree_x.glb` under `assets/raw/`.
 2. Create `assets/prototypes/tree_x.tscn` with a `StaticBody3D` root.
@@ -52,10 +52,7 @@ For a real tree:
 
 No placement/backend/runtime code needs to change.
 
-The current visual baseline uses CC0 KayKit Forest Nature models for six seeded tree
-variations plus small rock, bush, grass, and bare-tree dressing sets. KayKit Medieval
-Hexagon supplies two houses and one church. Only referenced GLTF/BIN/shared texture
-files are stored under `assets/raw/kaykit/`; license texts are kept beside them.
+The OwenG-aligned policies use migrated tree, grass, shrub, rock, prop, vehicle, and structure assets. Legacy prototype entries remain available only to existing low-level transition tests and are not active semantic-policy fallbacks.
 
 ## Current V0 implementation
 
@@ -65,23 +62,30 @@ Implemented:
 - World IR V2 root primitives: Region / Network / Entity / Distribution.
 - Region anchor lowering to concrete polygons.
 - A single Region with no anchor or relations falls back to the full playable-world domain; multi-Region worlds keep normal constrained lowering.
-- Procedural road/path lowering to deterministic polyline/ribbon geometry.
-- Deterministic low-frequency macro terrain with stronger rolling Forest relief, calmer settlements, graded roads/building pads, and shaped coast profiles.
-- One stylized world-surface shader blending meadow, forest floor, packed dirt, sand, and road dirt without photographic PBR textures.
-- Boundary-touching Coast Regions resolve into deterministic shoreline geometry, submerged terrain, wet sand, foam, and a lightweight stylized ocean surface with animated wave normals and color bands.
+- Procedural `path` lowering to deterministic polyline/ribbon geometry.
+- Fixed active vocabulary for OwenG-aligned Region, Network, Entity, and Distribution types.
+- Exactly one owner Region is required for every Entity and Distribution; Region nesting is rejected.
+- `RegionProfileCatalog` carries the terrain, surface, visual policy, path, lighting, atmosphere, and transition seams for the three Region types.
+- Owner-aware prototype selection resolves `(semantic_type, owner_region_type)` to a compatible pool and rejects unsupported combinations.
+- OwenG prototype descriptors wrap migrated GLTF/GLB resources with measured source bounds, scale corrections, placement/collision metadata, and license provenance for every active Distribution type and the supported Region-specific Entity set.
+- One continuous 129×129 terrain blends gentle coastal relief, a controlled research-base grade, and rolling snow-forest terrain from final Region claim polygons.
+- Normalized polygon-distance weights drive one continuous surface shader that blends OwenG CC0 grass, dirt, white-sand, and gray-gravel PBR albedo/normal/roughness textures without hard polygon color fills.
+- One continuous Path ribbon samples the same weights per vertex, transitioning from forest dirt through industrial gravel to compacted snow.
+- The single Sun and WorldEnvironment blend profile lighting/fog from player position; one player-following snowfall emitter fades with snow-forest influence.
 - Prototype-aware Entity placement.
 - Distribution `count` / TSCN-footprint and usable-area-scaled qualitative `density` / `density_profile.gradient` weighted lowering.
-- Explicit Distribution arrangements are authoritative; only a missing tree arrangement may receive the backend's natural Forest realization profile.
+- Explicit Distribution arrangements remain authoritative.
 - `data/configs/backend.json` drives world size, default seed, spatial thresholds, and area-density realization parameters.
 - Stable Resolved SceneDiff reports object-level added/removed/changed or moved/replaced/unchanged records for incremental transitions.
 - Incremental World Rewrite transitions preserve unchanged Node identity; changed objects grow/fade/move/crossfade with bounded spatial stagger and a restrained local ground ripple.
 - Distribution variants, yaw, candidates, clusters, and along-road slots use object-local deterministic streams; count changes preserve existing instance prefixes when spatial constraints remain compatible.
-- Regions use deterministic bounded claims: anchors and relations establish seeds, configured area budgets limit spread, same-layer Regions arbitrate contested ground without filling the world, and `inside` remains hierarchical overlap.
-- Resolved-polygon Forest Dressing with area-scaled, seeded edge vegetation, clustered rocks/bushes, rare bare-tree accents, and shared occupancy avoidance.
+- The default offline fixture is the complete three-Region OwenG world; fake-compiler prompts for fewer snow rocks or more coastal trees exercise stable population edits without an LLM server.
+- Regions use deterministic bounded claims: anchors and relations establish seeds, configured area budgets limit spread, and same-layer Regions arbitrate contested ground without filling the world.
+- Region profiles never create semantic objects; vegetation, rocks, and entities are realized only when explicitly present in IR.
 - `inside`, `near`, `far_from`, `along`, `direction_of` placement operators.
 - `random`, `uniform`, `clustered` arrangement.
 - Runtime Binding `at` / `inside` / `near` lowering through Godot-local spatial payloads.
-- Backend capability rejection when a valid World Catalog V1 type has no Godot TSCN prototype (candidate world is not committed).
+- Backend capability rejection when an owner-aware semantic pair has no compatible prototype (candidate world is not committed).
 - Candidate scene construction before state commit.
 - Fake compiler + HTTP compiler boundary.
 - Playable first-person controller and collision.
@@ -90,9 +94,8 @@ Deliberately still simple:
 
 - Region geometry uses lightly irregular deterministic polygons as mask domains; V0 terrain is one bounded 129×129 mesh, not a streaming/erosion terrain system.
 - Roads bend lightly; terrain is graded beneath the core/shoulder, the ribbon is longitudinally densified, and both edges independently sample terrain. Topology routing remains a simple deterministic heuristic.
-- Ocean V0 is opaque, bounded to world-edge Coast realization, and intentionally has no swimming, buoyancy, reflection probe, or transparent depth rendering.
 - Density gradient uses qualitative weighted sampling; it is intentionally not a numeric density-field solver.
-- Road/Water geometry changes currently use ripple-assisted crossfade rather than spline/fluid morph; Terrain swaps its whole mesh at the ripple peak rather than chunking or vertex morphing.
+- Path geometry changes currently use ripple-assisted crossfade rather than spline morphing; Terrain swaps its whole mesh at the ripple peak rather than chunking or vertex morphing.
 - Runtime Fact gameplay aggregation is demonstrated by a deterministic demo fact, not tree-cutting gameplay.
 
 ## Smoke checks
@@ -108,6 +111,9 @@ With Godot 4.7 available:
 ```bash
 godot --headless --path . --script tests/test_contract.gd
 godot --headless --path . --script tests/test_backend.gd
+godot --headless --path . --script tests/test_oweng_semantic_rebase.gd
+godot --headless --path . --script tests/test_continuous_region_visuals.gd
+godot --headless --path . --script tests/test_oweng_step03_closure.gd
 godot --headless --path . --script tests/test_forest_dressing.gd
 godot --headless --path . --script tests/test_road_builder.gd
 godot --headless --path . --script tests/test_terrain_surface.gd
@@ -121,6 +127,14 @@ godot --headless --path . --script tests/test_region_claims.gd
 godot --headless --path . --script tests/test_scene_transition.gd
 ```
 
+For a rendered Step 03 visual pass (requires a working display/OpenGL driver):
+
+```bash
+godot --path . --display-driver wayland --rendering-method gl_compatibility --audio-driver Dummy --script tools/capture_step03_visual.gd
+```
+
+The six captures are written to `screenshots/step03/` and include the snow-rock and coastal-tree edits before and after transition.
+
 ## Architecture invariants
 
 - Backend never mutates SceneTree.
@@ -132,7 +146,7 @@ godot --headless --path . --script tests/test_scene_transition.gd
 - Resolved World contains value data, never live Node references.
 - Resolved Terrain is backend value data; Runtime renders its heights and RGBA surface masks without re-reading World IR.
 - Resolved Water is backend value data derived from a boundary-touching resolved Coast polygon; it never becomes a World IR object.
-- Backend-owned dressing remains separate from IR-owned Distributions and runs only after explicit semantics claim occupancy.
+- Region profiles never dress a Region implicitly; every Entity and Distribution instance originates from explicit IR.
 - Single-unconstrained-Region fallback exists only in Resolved geometry and never writes a synthetic placement back into World IR.
 
 ## Contract enforcement

@@ -9,12 +9,32 @@ required = [
     "scripts/runtime/scene_transition.gd",
     "scripts/backend/backend_config.gd", "data/configs/backend.json",
     "scripts/backend/region_claim_resolver.gd",
+    "scripts/backend/owner_region_resolver.gd",
+    "scripts/backend/region_profile_catalog.gd",
     "scripts/backend/terrain_resolver.gd", "scripts/resolved/resolved_terrain.gd",
-    "scripts/backend/coast_resolver.gd", "scripts/resolved/resolved_water.gd",
-    "scripts/backend/forest_dresser.gd", "scripts/resolved/resolved_decoration.gd",
     "assets/prototypes/nature/tree_01.tscn", "assets/prototypes/nature/rock_01.tscn",
-    "assets/prototypes/nature/bush_01.tscn", "assets/prototypes/nature/grass_01.tscn",
-    "assets/prototypes/nature/dead_tree_01.tscn", "data/fixtures/coastal_town_initial.json",
+    "assets/prototypes/nature/grass_01.tscn",
+    "assets/prototypes/oweng/entities/crate_01.tscn",
+    "assets/oweng/terrain/grass_path_2/grass_path_2_diff_2k.jpg",
+    "assets/oweng/terrain/grass_path_2/grass_path_2_nor_gl_2k.jpg",
+    "assets/oweng/terrain/grass_path_2/grass_path_2_rough_2k.jpg",
+    "assets/oweng/terrain/brown_mud_dry/brown_mud_dry_diff_2k.jpg",
+    "assets/oweng/terrain/brown_mud_dry/brown_mud_dry_nor_gl_2k.jpg",
+    "assets/oweng/terrain/brown_mud_dry/brown_mud_dry_rough_2k.jpg",
+    "assets/oweng/terrain/aerial_beach_01/aerial_beach_01_diff_2k.jpg",
+    "assets/oweng/terrain/aerial_beach_01/aerial_beach_01_nor_gl_2k.jpg",
+    "assets/oweng/terrain/aerial_beach_01/aerial_beach_01_rough_2k.jpg",
+    "assets/oweng/terrain/rocky_terrain/rocky_terrain_diff_2k.jpg",
+    "assets/oweng/terrain/rocky_terrain/rocky_terrain_nor_gl_2k.jpg",
+    "assets/oweng/terrain/rocky_terrain/rocky_terrain_rough_2k.jpg",
+    "data/fixtures/oweng_semantic_baseline.json",
+    "data/fixtures/oweng_final_world.json",
+    "tools/capture_step03_visual.gd",
+    "tests/test_contract.gd",
+    "tests/test_backend.gd",
+    "tests/test_oweng_semantic_rebase.gd",
+    "tests/test_continuous_region_visuals.gd",
+    "tests/test_oweng_step03_closure.gd",
     "tests/test_terrain_surface.gd",
     "tests/test_main_scene.gd",
     "tests/test_coast_water.gd",
@@ -46,8 +66,27 @@ for p in (root / "data/fixtures").glob("*.json"):
                 assert item["id"] not in ids, (p, "duplicate id", item["id"])
                 ids[item["id"]] = key
         for item in ir["networks"]:
-            assert item.get("type") in {"road", "path"}, (p, item)
+            assert item.get("type") == "path", (p, item)
             assert isinstance(item.get("topology"), dict), (p, item)
+        for item in ir["regions"]:
+            assert item.get("type") in {
+                "coastal_forest", "research_base", "snow_forest"
+            }, (p, item)
+            inside = [
+                relation for relation in item.get("placement", {}).get("relations", [])
+                if relation.get("type") == "inside"
+            ]
+            assert not inside, (p, "Region nesting", item)
+        for key in ("entities", "distributions"):
+            for item in ir[key]:
+                inside = [
+                    relation for relation in item.get("placement", {}).get("relations", [])
+                    if relation.get("type") == "inside"
+                ]
+                assert len(inside) == 1, (p, "owner Region count", item)
+                assert ids.get(inside[0].get("target")) == "regions", (
+                    p, "owner target must be Region", item
+                )
         for key in ("regions", "networks", "entities", "distributions"):
             for item in ir[key]:
                 for rel in item.get("placement", {}).get("relations", []):

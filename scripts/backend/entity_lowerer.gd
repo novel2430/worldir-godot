@@ -14,18 +14,22 @@ func lower(
     catalog: PrototypeCatalog,
     solver: PlacementSolver,
     context: Dictionary,
+    owner_region: Dictionary,
     binding: Dictionary = {}
 ) -> ResolvedEntity:
     last_error = ""
     var out := ResolvedEntity.new()
     out.id = String(item.get("id", ""))
     out.semantic_type = String(item.get("type", ""))
+    out.owner_region_id = String(owner_region.get("id", ""))
+    out.owner_region_type = String(owner_region.get("type", ""))
     out.prototype_id = catalog.choose_prototype(
         out.semantic_type,
+        out.owner_region_type,
         solver.local_rng(out.id, 0, PROTOTYPE_SEED_SALT)
     )
     if out.prototype_id.is_empty():
-        last_error = "Backend capability missing: no TSCN prototype for Entity '%s' (type='%s')" % [out.id, out.semantic_type]
+        last_error = "Backend capability missing: no compatible prototype for Entity '%s' (type='%s', owner_region_type='%s')" % [out.id, out.semantic_type, out.owner_region_type]
         return null
 
     var meta := catalog.get_metadata(out.prototype_id)

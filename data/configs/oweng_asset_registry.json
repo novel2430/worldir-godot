@@ -1,0 +1,165 @@
+{
+  "format": "worldir-artlab-asset-registry-v2",
+  "entries": [
+    {
+      "id": "tree.birch.coastal",
+      "resource_path": "res://assets/oweng/vegetation/trees/birch_oga/birch_oga.glb",
+      "category": "environment",
+      "default_interaction_class": "environment",
+      "capabilities": ["inspect"],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelsopengameart",
+      "license": "CC0"
+    },
+    {
+      "id": "tree.conifer.pine",
+      "resource_path": "res://assets/oweng/vegetation/trees/pine_sapling_small/pine_sapling_small_1k.gltf",
+      "category": "environment",
+      "default_interaction_class": "environment",
+      "capabilities": ["inspect"],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelspoly-haven1k-gltf",
+      "license": "CC0"
+    },
+    {
+      "id": "tree.conifer.fir_mature",
+      "resource_path": "res://assets/oweng/vegetation/trees/fir_sapling_medium/fir_sapling_medium_1k.gltf",
+      "category": "environment",
+      "default_interaction_class": "environment",
+      "capabilities": ["inspect"],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelspoly-haven1k-gltf",
+      "license": "CC0"
+    },
+    {
+      "id": "plant.grass.medium",
+      "resource_path": "res://assets/oweng/vegetation/grass/grass_medium_01/grass_medium_01_1k.gltf",
+      "category": "decorative",
+      "default_interaction_class": "decorative",
+      "capabilities": [],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelspoly-haven1k-gltf",
+      "license": "CC0"
+    },
+    {
+      "id": "plant.shrub.01",
+      "resource_path": "res://assets/oweng/vegetation/bushes/shrub_01/shrub_01_1k.gltf",
+      "category": "decorative",
+      "default_interaction_class": "decorative",
+      "capabilities": [],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelspoly-haven1k-gltf",
+      "license": "CC0"
+    },
+    {
+      "id": "plant.shrub.02",
+      "resource_path": "res://assets/oweng/vegetation/bushes/shrub_02/shrub_02_1k.gltf",
+      "category": "decorative",
+      "default_interaction_class": "decorative",
+      "capabilities": [],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelspoly-haven1k-gltf",
+      "license": "CC0"
+    },
+    {
+      "id": "rock.cold.07",
+      "resource_path": "res://assets/oweng/rocks/rock_07/rock_07_1k.gltf",
+      "category": "environment",
+      "default_interaction_class": "environment",
+      "capabilities": ["inspect"],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelspoly-haven1k-gltf",
+      "license": "CC0"
+    },
+    {
+      "id": "ground.grass",
+      "resource_path": "res://assets/oweng/terrain/grass_path_2/grass_path_2_diff_2k.jpg",
+      "category": "surface",
+      "default_interaction_class": "decorative",
+      "capabilities": [],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-pbr-texturespoly-haven2k-jpg",
+      "license": "CC0"
+    },
+    {
+      "id": "ground.dirt",
+      "resource_path": "res://assets/oweng/terrain/brown_mud_dry/brown_mud_dry_diff_2k.jpg",
+      "category": "surface",
+      "default_interaction_class": "decorative",
+      "capabilities": [],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-pbr-texturespoly-haven2k-jpg",
+      "license": "CC0"
+    },
+    {
+      "id": "ground.white_sand",
+      "resource_path": "res://assets/oweng/terrain/aerial_beach_01/aerial_beach_01_diff_2k.jpg",
+      "category": "surface",
+      "default_interaction_class": "decorative",
+      "capabilities": [],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-pbr-texturespoly-haven2k-jpg",
+      "license": "CC0"
+    },
+    {
+      "id": "ground.gray_gravel",
+      "resource_path": "res://assets/oweng/terrain/rocky_terrain/rocky_terrain_diff_2k.jpg",
+      "category": "surface",
+      "default_interaction_class": "decorative",
+      "capabilities": [],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-pbr-texturespoly-haven2k-jpg",
+      "license": "CC0"
+    },
+    {
+      "id": "structure.research.station",
+      "resource_path": "res://assets/oweng/generated/source/industrial/abandoned_soviet_research_station_2711371_2.glb",
+      "category": "environment",
+      "default_interaction_class": "environment",
+      "capabilities": ["inspect", "use"],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#user-provided-generated-assets",
+      "license": "user_provided_generated_asset"
+    },
+    {
+      "id": "structure.research.radar",
+      "resource_path": "res://assets/oweng/generated/source/industrial/abandoned_radar_tower_2711741_2.glb",
+      "category": "environment",
+      "default_interaction_class": "environment",
+      "capabilities": ["inspect"],
+      "scale_correction": 0.72,
+      "source_ref": "ASSET_MANIFEST.md#user-provided-generated-assets",
+      "license": "user_provided_generated_asset"
+    },
+    {
+      "id": "structure.snow.cabin",
+      "resource_path": "res://assets/oweng/generated/source/snow_forest/snow_log_cabin_with_porch.glb",
+      "category": "environment",
+      "default_interaction_class": "environment",
+      "capabilities": ["inspect", "open"],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#user-provided-generated-assets",
+      "license": "user_provided_generated_asset"
+    },
+    {
+      "id": "prop.boat.rowboat",
+      "resource_path": "res://assets/oweng/generated/source/forest_seaside/weathered_wooden_rowboat_2712647_2.glb",
+      "category": "interactive",
+      "default_interaction_class": "decorative",
+      "capabilities": ["inspect", "use"],
+      "scale_correction": 3.9,
+      "source_ref": "ASSET_MANIFEST.md#user-provided-generated-assets",
+      "license": "user_provided_generated_asset"
+    },
+    {
+      "id": "prop.industrial.crate",
+      "resource_path": "res://assets/oweng/props/interactive/wooden_crate_01/wooden_crate_01_1k.gltf",
+      "category": "interactive",
+      "default_interaction_class": "interactive",
+      "capabilities": ["inspect", "open", "container"],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelspoly-haven1k-gltf",
+      "license": "CC0"
+    }
+  ]
+}

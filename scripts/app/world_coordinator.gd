@@ -51,7 +51,7 @@ func create_demo_clearing() -> void:
 func _on_readiness_changed(ready: bool, detail: String) -> void:
 	status_changed.emit(detail)
 	if ready and auto_generate_demo and world_state.current_ir == null:
-		submit_prompt("生成一个废弃海边小镇：西边森林，东边海岸，主路南北贯穿，北边教堂靠近道路，房屋沿路，森林里有树。")
+		submit_prompt("生成一个连续世界：西侧海岸森林，中部研究基地，东侧雪林，并用一条路径连接。")
 
 func _on_compile_completed(result: Dictionary) -> void:
 	if String(result.get("status", "")) == "ir_gap":

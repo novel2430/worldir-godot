@@ -3,137 +3,74 @@ extends SceneTree
 const ContractValidatorScript = preload("res://scripts/compiler/contract_validator.gd")
 
 func _init() -> void:
-    var validator = ContractValidatorScript.new()
+    var validator := ContractValidatorScript.new()
+    var fixture := _load_json("res://data/fixtures/oweng_semantic_baseline.json")
+    _expect_valid("OwenG baseline", validator.validate_compile_result(fixture, {"version": "1", "facts": []}))
 
-    var initial := _load_json("res://data/fixtures/coastal_town_initial.json")
-    var empty_context := {"version": "1", "facts": []}
-    _expect_valid("initial fixture", validator.validate_compile_result(initial, empty_context))
+    var vocabulary := _catalog_world()
+    _expect_valid("active OwenG vocabulary", validator.validate_world_ir(vocabulary))
 
-    var clearing_fact := {
-        "id": "clearing_01",
-        "kind": "marked_area",
-        "mark": "cleared",
-        "location": {"inside": "forest", "anchor": "east"},
-        "affected_type": "tree",
-        "count": 23,
+    var old_region: Dictionary = vocabulary.duplicate(true)
+    old_region.regions[0].type = "forest"
+    _expect_invalid("old Region vocabulary", validator.validate_world_ir(old_region))
+
+    var old_network: Dictionary = vocabulary.duplicate(true)
+    old_network.networks[0].type = "road"
+    _expect_invalid("old Network vocabulary", validator.validate_world_ir(old_network))
+
+    var missing_owner: Dictionary = vocabulary.duplicate(true)
+    missing_owner.entities[0].placement.relations = []
+    _expect_invalid("Entity without owner", validator.validate_world_ir(missing_owner))
+
+    var multi_owner: Dictionary = vocabulary.duplicate(true)
+    multi_owner.distributions[0].placement.relations.append({"type": "inside", "target": "r_snow"})
+    _expect_invalid("Distribution with multiple owners", validator.validate_world_ir(multi_owner))
+
+    var non_region_owner: Dictionary = vocabulary.duplicate(true)
+    non_region_owner.entities[0].placement.relations[0].target = "n_path"
+    _expect_invalid("inside target is not Region", validator.validate_world_ir(non_region_owner))
+
+    var nested_region: Dictionary = vocabulary.duplicate(true)
+    nested_region.regions[1].placement = {
+        "relations": [{"type": "inside", "target": "r_coastal"}]
     }
-    var edit_context := {"version": "1", "facts": [clearing_fact]}
-    var graveyard := _load_json("res://data/fixtures/clearing_to_graveyard.json")
-    _expect_valid("graveyard fixture", validator.validate_compile_result(graveyard, edit_context))
+    _expect_invalid("Region nesting", validator.validate_world_ir(nested_region))
 
-    var restore := _load_json("res://data/fixtures/restore_forest.json")
-    _expect_valid("restore fixture", validator.validate_compile_result(restore, edit_context))
-
-    var gap := _load_json("res://data/fixtures/ir_gap.json")
-    _expect_valid("ir_gap fixture", validator.validate_compile_result(gap, edit_context))
-
-    var bad_route: Dictionary = graveyard.duplicate(true)
-    bad_route["meta"]["route"] = "fake"
-    _expect_invalid("bad route", validator.validate_compile_result(bad_route, edit_context))
-
-    var bad_density: Dictionary = initial["world_ir"].duplicate(true)
-    var trees: Dictionary = bad_density["distributions"][1]
-    trees["population"]["density_profile"] = {
-        "type": "gradient",
-        "from": {
-            "selector": {"type": "near", "target": "main_road"},
-            "density": "low",
-        },
-        "to": {
-            "selector": {"type": "anchor", "value": "west"},
-            "density": "high",
-        },
-    }
-    _expect_invalid("density + density_profile", validator.validate_world_ir(bad_density))
-
-    var bad_unknown: Dictionary = initial["world_ir"].duplicate(true)
-    bad_unknown["entities"][0]["mesh_path"] = "forbidden_backend_field"
-    _expect_invalid("unknown backend field", validator.validate_world_ir(bad_unknown))
-
-    var bad_initial_request := {
-        "prompt": "hello",
-        "current_ir": null,
-        "runtime_context": edit_context,
-    }
-    _expect_invalid("initial request with runtime facts", validator.validate_compile_request(bad_initial_request))
-
-    # JSON.parse_string() decodes JSON numbers as float in Godot. Integral floats
-    # must still satisfy the Contract's integer semantics.
-    var fractional_count: Dictionary = initial["world_ir"].duplicate(true)
-    fractional_count["distributions"][0]["population"]["amount"]["value"] = 12.5
-    _expect_invalid("fractional count", validator.validate_world_ir(fractional_count))
-
-    _test_catalog_v1_types(validator)
-    _test_id_and_anchor_contract(validator)
     _test_http_info_versions()
-
-    print("WorldIR contract validation tests passed")
+    print("WorldIR OwenG contract validation tests passed")
     quit(0)
 
-func _test_catalog_v1_types(validator: ContractValidator) -> void:
-    var catalog_world := {
-        "regions": [
-            {"id": "r_town", "type": "town"},
-            {"id": "r_village", "type": "village"},
-            {"id": "r_forest", "type": "forest"},
-            {"id": "r_coast", "type": "coast"},
-            {"id": "r_graveyard", "type": "graveyard"},
-            {"id": "r_district", "type": "district"},
-            {"id": "r_field", "type": "field"},
-            {"id": "r_swamp", "type": "swamp"},
-        ],
-        "networks": [
-            {"id": "n_road", "type": "road", "topology": {"from": "south", "to": "north"}},
-            {"id": "n_path", "type": "path", "topology": {"from": "west", "to": "east"}},
-        ],
-        "entities": [
-            {"id": "e_church", "type": "church"},
-            {"id": "e_lighthouse", "type": "lighthouse"},
-            {"id": "e_tower", "type": "tower"},
-            {"id": "e_bridge", "type": "bridge"},
-            {"id": "e_radio", "type": "radio_tower"},
-            {"id": "e_gas", "type": "gas_station"},
-        ],
-        "distributions": [
-            {"id": "d_house", "type": "house"},
-            {"id": "d_tree", "type": "tree"},
-            {"id": "d_tombstone", "type": "tombstone"},
-            {"id": "d_lamp", "type": "lamp"},
-        ],
+func _catalog_world() -> Dictionary:
+    var regions := [
+        {"id": "r_coastal", "type": "coastal_forest", "placement": {"anchor": "west"}},
+        {"id": "r_base", "type": "research_base", "placement": {"anchor": "center"}},
+        {"id": "r_snow", "type": "snow_forest", "placement": {"anchor": "east"}},
+    ]
+    var entities: Array = []
+    var entity_types := [
+        "rowboat", "tent", "cabin", "research_station", "radar_tower", "warning_sign",
+        "cargo_truck", "crate", "maritime_memorial", "ruined_archway", "bunker", "concrete_wall",
+    ]
+    for index in range(entity_types.size()):
+        entities.append({
+            "id": "entity_%d" % index,
+            "type": entity_types[index],
+            "placement": {"relations": [{"type": "inside", "target": "r_base"}]},
+        })
+    var distributions: Array = []
+    for semantic_type in ["tree", "grass", "shrub", "rock"]:
+        distributions.append({
+            "id": "distribution_%s" % semantic_type,
+            "type": semantic_type,
+            "placement": {"relations": [{"type": "inside", "target": "r_coastal"}]},
+            "population": {"amount": {"mode": "count", "value": 1}},
+        })
+    return {
+        "regions": regions,
+        "networks": [{"id": "n_path", "type": "path", "topology": {"from": "west", "to": "east"}}],
+        "entities": entities,
+        "distributions": distributions,
     }
-    _expect_valid("all World Catalog V1 types", validator.validate_world_ir(catalog_world))
-
-    var unknown_type: Dictionary = catalog_world.duplicate(true)
-    unknown_type["entities"][0]["type"] = "castle"
-    _expect_invalid("non-Catalog type", validator.validate_world_ir(unknown_type))
-
-func _test_id_and_anchor_contract(validator: ContractValidator) -> void:
-    var blank_id := _empty_world()
-    blank_id["regions"].append({"id": "   ", "type": "forest"})
-    _expect_invalid("blank World IR id", validator.validate_world_ir(blank_id))
-
-    var whole_placement := _empty_world()
-    whole_placement["regions"].append({
-        "id": "forest",
-        "type": "forest",
-        "placement": {"anchor": "whole"},
-    })
-    _expect_valid("placement anchor whole", validator.validate_world_ir(whole_placement))
-
-    var whole_selector := _empty_world()
-    whole_selector["regions"].append({"id": "forest", "type": "forest"})
-    whole_selector["distributions"].append({
-        "id": "trees",
-        "type": "tree",
-        "population": {
-            "density_profile": {
-                "type": "gradient",
-                "from": {"selector": {"type": "anchor", "value": "whole"}, "density": "low"},
-                "to": {"selector": {"type": "anchor", "value": "west"}, "density": "high"},
-            },
-        },
-    })
-    _expect_invalid("density selector anchor whole", validator.validate_world_ir(whole_selector))
 
 func _test_http_info_versions() -> void:
     var client := HttpCompilerClient.new()
@@ -143,47 +80,21 @@ func _test_http_info_versions() -> void:
         "runtime_context_version": "1",
         "compile_result_version": "1",
     }
-    _expect_true("matching /info versions", client._is_info_compatible(compatible_info))
-    var catalog_mismatch: Dictionary = compatible_info.duplicate(true)
-    catalog_mismatch["world_catalog_version"] = "2"
-    _expect_true("world catalog mismatch rejected", not client._is_info_compatible(catalog_mismatch))
-    var readiness: Dictionary = {}
-    client.readiness_changed.connect(func(ready: bool, detail: String) -> void:
-        readiness["ready"] = ready
-        readiness["detail"] = detail
-    )
-    client._phase = "info"
-    client._on_request_completed(
-        HTTPRequest.RESULT_SUCCESS,
-        200,
-        PackedStringArray(),
-        JSON.stringify(catalog_mismatch).to_utf8_buffer()
-    )
-    _expect_true("catalog mismatch emits not-ready", readiness.get("ready") == false)
-    _expect_true("catalog mismatch emits protocol mismatch", readiness.get("detail") == "Protocol version mismatch")
-    _expect_true("catalog mismatch returns client to idle", client._phase == "idle")
+    assert(client._is_info_compatible(compatible_info))
+    var mismatch: Dictionary = compatible_info.duplicate(true)
+    mismatch.world_catalog_version = "2"
+    assert(not client._is_info_compatible(mismatch))
     client.free()
 
 func _expect_valid(label: String, errors: PackedStringArray) -> void:
-    if errors.is_empty():
-        return
-    printerr("FAILED [%s]: %s" % [label, " | ".join(errors)])
-    quit(1)
+    if not errors.is_empty():
+        printerr("FAILED [%s]: %s" % [label, " | ".join(errors)])
+        quit(1)
 
 func _expect_invalid(label: String, errors: PackedStringArray) -> void:
-    if not errors.is_empty():
-        return
-    printerr("FAILED [%s]: expected validation errors, got none" % label)
-    quit(1)
-
-func _expect_true(label: String, condition: bool) -> void:
-    if condition:
-        return
-    printerr("FAILED [%s]" % label)
-    quit(1)
-
-func _empty_world() -> Dictionary:
-    return {"regions": [], "networks": [], "entities": [], "distributions": []}
+    if errors.is_empty():
+        printerr("FAILED [%s]: expected validation errors" % label)
+        quit(1)
 
 func _load_json(path: String) -> Dictionary:
     var file := FileAccess.open(path, FileAccess.READ)

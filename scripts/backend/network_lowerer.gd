@@ -17,8 +17,8 @@ func lower(
 	last_error = ""
 	var out := ResolvedNetwork.new()
 	out.id = String(item.get("id", ""))
-	out.semantic_type = String(item.get("type", "road"))
-	out.width = 4.2 if out.semantic_type == "road" else 2.2
+	out.semantic_type = String(item.get("type", "path"))
+	out.width = 2.2
 	out.surface_kind = out.semantic_type
 
 	var placement: Dictionary = item.get("placement", {})
@@ -38,8 +38,8 @@ func lower(
 
 	# Topology owns connection endpoints and via order. Placement constrains the
 	# body of the path. In particular, world-anchor endpoints remain untouched:
-	# south -> north + inside town means a world-spanning road routed through town,
-	# not a road whose endpoints are clamped into the town polygon.
+	# south -> north + inside a Region means a world-spanning path routed through
+	# that Region, not a path whose endpoints are clamped into its polygon.
 	var has_world_anchor_endpoint: bool = _is_world_anchor(from_token) or _is_world_anchor(to_token)
 	var traversal_points: Array[Vector2] = []
 	var placement_anchor: String = String(placement.get("anchor", ""))

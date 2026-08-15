@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://dficvhot5htvc"]
+[gd_scene format=3 uid="uid://dficvhot5htvc"]
 
 [ext_resource type="Script" uid="uid://jki1tmx26qs7" path="res://scripts/app/world_coordinator.gd" id="1"]
 [ext_resource type="Script" uid="uid://ctbiqxonjpddt" path="res://scripts/app/world_state.gd" id="2"]
@@ -9,7 +9,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/prompt_panel.tscn" id="7"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMaterial"]
-sky_top_color = Color(0.20, 0.36, 0.52, 1)
+sky_top_color = Color(0.2, 0.36, 0.52, 1)
 sky_horizon_color = Color(0.72, 0.76, 0.72, 1)
 ground_bottom_color = Color(0.12, 0.14, 0.12, 1)
 ground_horizon_color = Color(0.58, 0.56, 0.47, 1)
@@ -38,7 +38,7 @@ fog_sky_affect = 0.35
 environment = SubResource("Env")
 
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=297099342]
-rotation_degrees = Vector3(-38, -35, 0)
+transform = Transform3D(0.81915206, 0.35312894, -0.45198444, 0, 0.7880108, 0.6156615, 0.57357645, -0.5043204, 0.64550066, 0, 0, 0)
 light_color = Color(1, 0.87, 0.73, 1)
 light_energy = 0.84
 shadow_enabled = true
@@ -48,7 +48,7 @@ directional_shadow_max_distance = 130.0
 unique_name_in_owner = true
 
 [node name="Player" parent="." unique_id=1467336534 instance=ExtResource("6")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 48)
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -62, 5, 0)
 
 [node name="WorldState" type="Node" parent="." unique_id=2142624567]
 unique_name_in_owner = true

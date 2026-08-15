@@ -13,8 +13,10 @@ const STAGGER_WINDOW := 0.34
 const TERRAIN_SWAP_DELAY := 0.34
 const COMPLETE_PADDING := 0.08
 
-const VEGETATION_TYPES := ["tree", "bush", "grass", "dead_tree", "stump", "plant", "flower"]
-const BUILDING_TYPES := ["house", "church", "tower", "lighthouse", "bridge", "radio_tower", "gas_station"]
+const VEGETATION_TYPES := ["tree", "grass", "shrub"]
+const BUILDING_TYPES := [
+    "tent", "cabin", "research_station", "radar_tower", "bunker", "concrete_wall"
+]
 
 var duration_scale := 1.0
 var last_patch_summary: Dictionary = {}
@@ -257,8 +259,9 @@ func _animate_static_add(node: Node3D, delay: float) -> void:
     _set_collision_enabled(node, false)
     var actual_delay := delay * duration_scale
     var actual_duration := STATIC_REPLACE_DURATION * duration_scale
-    var tween := node.create_tween().set_parallel(true)
-    _tween_visual_transparency(tween, node, 0.0, actual_duration, actual_delay)
+    if not _geometry_instances(node).is_empty():
+        var tween := node.create_tween().set_parallel(true)
+        _tween_visual_transparency(tween, node, 0.0, actual_duration, actual_delay)
     var lifecycle := node.create_tween()
     lifecycle.tween_interval(actual_delay + actual_duration)
     lifecycle.tween_callback(_set_collision_enabled.bind(node, true))
@@ -269,8 +272,9 @@ func _animate_static_remove(node: Node3D, delay: float) -> void:
     var lifecycle := node.create_tween()
     lifecycle.tween_interval(actual_delay)
     lifecycle.tween_callback(_set_collision_enabled.bind(node, false))
-    var tween := node.create_tween().set_parallel(true)
-    _tween_visual_transparency(tween, node, 1.0, actual_duration, actual_delay)
+    if not _geometry_instances(node).is_empty():
+        var tween := node.create_tween().set_parallel(true)
+        _tween_visual_transparency(tween, node, 1.0, actual_duration, actual_delay)
     var cleanup := node.create_tween()
     cleanup.tween_interval(actual_delay + actual_duration)
     cleanup.tween_callback(node.queue_free)

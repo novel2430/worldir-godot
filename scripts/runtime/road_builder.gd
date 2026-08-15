@@ -5,6 +5,9 @@ const MITER_LIMIT := 2.0
 const POINT_EPSILON_SQUARED := 0.000001
 const MAX_TERRAIN_SEGMENT_LENGTH_M := 1.25
 
+var region_profiles := RegionProfileCatalog.new()
+var _path_material_cache: ShaderMaterial = null
+
 func build(network: ResolvedNetwork, terrain: Resource = null) -> Node3D:
     var root := Node3D.new()
     root.name = _safe_name(network.id)
@@ -20,12 +23,7 @@ func build(network: ResolvedNetwork, terrain: Resource = null) -> Node3D:
     # an elevated slab. Disabling its own cast shadow removes the black trench
     # that otherwise appears between two nearly coincident surfaces.
     mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-    var material := StandardMaterial3D.new()
-    # Warm, low-contrast dirt reads more naturally beside the muted ground than
-    # the previous near-black concrete strip. Surface kind remains road semantics.
-    material.albedo_color = Color(0.29, 0.245, 0.18)
-    material.roughness = 1.0
-    mesh_instance.material_override = material
+    mesh_instance.material_override = _path_material()
     root.add_child(mesh_instance)
     _add_collision(root, mesh_instance.mesh)
     return root
@@ -49,8 +47,8 @@ func _build_ribbon(points: PackedVector3Array, width: float, terrain: Resource =
         var b_r := _edge_point(b, -b_offset, terrain)
         # Godot treats clockwise winding as front-facing. On the XZ plane these
         # orders face upward while preserving UP as the lighting normal.
-        _triangle(st, a_l, b_r, b_l, Vector2(0, 0), Vector2(1, 1), Vector2(0, 1))
-        _triangle(st, a_l, a_r, b_r, Vector2(0, 0), Vector2(1, 0), Vector2(1, 1))
+        _triangle(st, a_l, b_r, b_l, Vector2(0, 0), Vector2(1, 1), Vector2(0, 1), terrain)
+        _triangle(st, a_l, a_r, b_r, Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), terrain)
     return st.commit()
 
 func _join_offset(points: PackedVector3Array, index: int, half_width: float) -> Vector2:
@@ -111,20 +109,84 @@ func _edge_point(center: Vector3, offset: Vector2, terrain: Resource) -> Vector3
         result.y = terrain.sample_height(Vector2(result.x, result.z)) + float(terrain.road_surface_offset)
     return result
 
-func _triangle(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, uv_a: Vector2, uv_b: Vector2, uv_c: Vector2) -> void:
+func _triangle(
+    st: SurfaceTool,
+    a: Vector3,
+    b: Vector3,
+    c: Vector3,
+    uv_a: Vector2,
+    uv_b: Vector2,
+    uv_c: Vector2,
+    terrain: Resource
+) -> void:
     # Godot's clockwise front face uses the reverse of the conventional cross
     # product. This keeps road lighting correct as the ribbon follows terrain.
     var normal := (c - a).cross(b - a).normalized()
     if normal.y < 0.0:
         normal = -normal
-    _vertex(st, a, uv_a, normal)
-    _vertex(st, b, uv_b, normal)
-    _vertex(st, c, uv_c, normal)
+    _vertex(st, a, uv_a, normal, terrain)
+    _vertex(st, b, uv_b, normal, terrain)
+    _vertex(st, c, uv_c, normal, terrain)
 
-func _vertex(st: SurfaceTool, p: Vector3, uv: Vector2, normal: Vector3) -> void:
+func _vertex(
+    st: SurfaceTool,
+    p: Vector3,
+    uv: Vector2,
+    normal: Vector3,
+    terrain: Resource
+) -> void:
     st.set_normal(normal)
     st.set_uv(uv)
+    st.set_color(_path_color_at(p, terrain))
     st.add_vertex(p)
+
+func _path_color_at(point: Vector3, terrain: Resource) -> Color:
+    var weights := Color(1.0, 0.0, 0.0, 0.0)
+    if terrain != null:
+        weights = terrain.sample_region_weights(Vector2(point.x, point.z))
+    var total := weights.r + weights.g + weights.b
+    if total > 0.0001:
+        weights.r /= total
+        weights.g /= total
+        weights.b /= total
+    var coastal: Color = region_profiles.get_profile("coastal_forest").path_style.color
+    var research: Color = region_profiles.get_profile("research_base").path_style.color
+    var snow: Color = region_profiles.get_profile("snow_forest").path_style.color
+    var result := coastal * weights.r + research * weights.g + snow * weights.b
+    result.a = 1.0
+    return result
+
+func _path_material() -> ShaderMaterial:
+    if _path_material_cache != null:
+        return _path_material_cache
+    var shader := Shader.new()
+    shader.code = """
+shader_type spatial;
+render_mode cull_back, depth_draw_opaque;
+
+varying vec3 world_position;
+
+float path_noise(vec2 p) {
+    return fract(sin(dot(floor(p), vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+void vertex() {
+    world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+void fragment() {
+    float grain = path_noise(world_position.xz * 1.7);
+    float edge = smoothstep(0.58, 1.0, abs(UV.x * 2.0 - 1.0));
+    vec3 surface = COLOR.rgb * mix(0.91, 1.07, grain);
+    surface *= mix(1.0, 0.82, edge);
+    ALBEDO = surface;
+    ROUGHNESS = 0.96;
+    SPECULAR = 0.07;
+}
+"""
+    _path_material_cache = ShaderMaterial.new()
+    _path_material_cache.shader = shader
+    return _path_material_cache
 
 func _add_collision(root: Node3D, mesh: ArrayMesh) -> void:
     var body := StaticBody3D.new()

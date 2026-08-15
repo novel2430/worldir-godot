@@ -1,0 +1,40 @@
+{
+  "status": "ok",
+  "world_ir": {
+    "regions": [
+      {"id":"coastal_region","type":"coastal_forest","placement":{"anchor":"west"}},
+      {"id":"research_region","type":"research_base","placement":{"anchor":"center"}},
+      {"id":"snow_region","type":"snow_forest","placement":{"anchor":"east"}}
+    ],
+    "networks": [
+      {"id":"main_path","type":"path","topology":{"from":"west","to":"east","via":["research_region"]}}
+    ],
+    "entities": [
+      {"id":"coastal_rowboat","type":"rowboat","placement":{"relations":[{"type":"inside","target":"coastal_region"}]}},
+      {"id":"coastal_tent","type":"tent","placement":{"relations":[{"type":"inside","target":"coastal_region"}]}},
+      {"id":"coastal_cabin","type":"cabin","placement":{"relations":[{"type":"inside","target":"coastal_region"}]}},
+      {"id":"research_station","type":"research_station","placement":{"relations":[{"type":"inside","target":"research_region"}]}},
+      {"id":"research_radar","type":"radar_tower","placement":{"relations":[{"type":"inside","target":"research_region"}]}},
+      {"id":"research_crate","type":"crate","placement":{"relations":[{"type":"inside","target":"research_region"}]}},
+      {"id":"research_truck","type":"cargo_truck","placement":{"relations":[{"type":"inside","target":"research_region"}]}},
+      {"id":"snow_cabin","type":"cabin","placement":{"relations":[{"type":"inside","target":"snow_region"}]}},
+      {"id":"snow_bunker","type":"bunker","placement":{"relations":[{"type":"inside","target":"snow_region"}]}},
+      {"id":"snow_memorial","type":"maritime_memorial","placement":{"relations":[{"type":"inside","target":"snow_region"}]}}
+    ],
+    "distributions": [
+      {"id":"coastal_trees","type":"tree","placement":{"relations":[{"type":"inside","target":"coastal_region"}]} ,"population":{"amount":{"mode":"density","value":"medium"},"arrangement":{"type":"clustered"}}},
+      {"id":"coastal_grass","type":"grass","placement":{"relations":[{"type":"inside","target":"coastal_region"}]} ,"population":{"amount":{"mode":"count","value":18},"arrangement":{"type":"clustered"}}},
+      {"id":"coastal_shrubs","type":"shrub","placement":{"relations":[{"type":"inside","target":"coastal_region"}]} ,"population":{"amount":{"mode":"count","value":10},"arrangement":{"type":"clustered"}}},
+      {"id":"coastal_rocks","type":"rock","placement":{"relations":[{"type":"inside","target":"coastal_region"}]} ,"population":{"amount":{"mode":"count","value":8},"arrangement":{"type":"random"}}},
+      {"id":"research_grass","type":"grass","placement":{"relations":[{"type":"inside","target":"research_region"}]} ,"population":{"amount":{"mode":"count","value":12},"arrangement":{"type":"uniform"}}},
+      {"id":"research_shrubs","type":"shrub","placement":{"relations":[{"type":"inside","target":"research_region"}]} ,"population":{"amount":{"mode":"count","value":8},"arrangement":{"type":"random"}}},
+      {"id":"research_rocks","type":"rock","placement":{"relations":[{"type":"inside","target":"research_region"}]} ,"population":{"amount":{"mode":"count","value":8},"arrangement":{"type":"uniform"}}},
+      {"id":"snow_trees","type":"tree","placement":{"relations":[{"type":"inside","target":"snow_region"}]} ,"population":{"amount":{"mode":"count","value":12},"arrangement":{"type":"clustered"}}},
+      {"id":"snow_shrubs","type":"shrub","placement":{"relations":[{"type":"inside","target":"snow_region"}]} ,"population":{"amount":{"mode":"count","value":10},"arrangement":{"type":"random"}}},
+      {"id":"snow_rocks","type":"rock","placement":{"relations":[{"type":"inside","target":"snow_region"}]} ,"population":{"amount":{"mode":"density","value":"high"},"arrangement":{"type":"uniform"}}}
+    ]
+  },
+  "runtime_bindings": [],
+  "runtime_fact_ops": [],
+  "meta": {"request_id":"fake_oweng_final","mode":"initial"}
+}

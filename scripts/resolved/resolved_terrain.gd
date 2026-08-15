@@ -1,9 +1,10 @@
 class_name ResolvedTerrain
 extends Resource
 
-# Vertex color channels are backend surface influences:
-# R = forest floor, G = settlement/packed dirt, B = coast/sand,
-# A = road/building-local dirt.
+# Vertex color channels are continuous visual influences derived from final
+# Region claim polygons:
+# R = coastal_forest, G = research_base, B = snow_forest,
+# A = path/building-local surface treatment.
 var world_bounds: Rect2 = Rect2()
 var grid_size: int = 0
 var road_surface_offset: float = 0.025
@@ -46,6 +47,13 @@ func sample_surface_mask(point: Vector2) -> Color:
     var top := surface_masks[_index(x0, z0)].lerp(surface_masks[_index(x1, z0)], tx)
     var bottom := surface_masks[_index(x0, z1)].lerp(surface_masks[_index(x1, z1)], tx)
     return top.lerp(bottom, tz)
+
+func sample_region_weights(point: Vector2) -> Color:
+    var weights := sample_surface_mask(point)
+    var total := weights.r + weights.g + weights.b
+    if total <= 0.0001:
+        return Color(1.0, 0.0, 0.0, 0.0)
+    return Color(weights.r / total, weights.g / total, weights.b / total, 0.0)
 
 func sample_shore_wetness(point: Vector2) -> float:
     if grid_size < 2 or shore_wetness.size() != grid_size * grid_size or not world_bounds.has_area():

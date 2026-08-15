@@ -7,14 +7,10 @@ const DEFAULT_POPULATION_BUDGET := 12
 const USABLE_AREA_GRID_SIZE := 36
 const RANDOM_PACKING_LOSS := 1.2
 const DENSITY_SPACING_MULTIPLIERS := {"low": 1.6, "medium": 1.0, "high": 0.45}
-const POPULATION_CAPS := {"tree": 200, "house": 60, "tombstone": 150, "lamp": 100}
+const POPULATION_CAPS := {"tree": 80, "grass": 180, "shrub": 100, "rock": 80}
 const DEFAULT_POPULATION_CAP := 100
 const DENSITY_WEIGHTS := {"low": 0.20, "medium": 0.55, "high": 1.0}
 const WEIGHTED_ATTEMPTS := 24
-const FOREST_CLUSTER_COUNT := 3
-const FOREST_EDGE_DENSITY := 0.12
-const FOREST_INTERIOR_DEPTH_RATIO := 0.14
-const FOREST_CLUSTER_RADIUS_RATIO := 0.22
 const EXPLICIT_CLUSTER_COUNT := 4
 const ALONG_SAMPLE_COUNT := 1024
 const VARIANT_SEED_SALT := 0x56415249
@@ -45,15 +41,21 @@ func lower(
 	catalog: PrototypeCatalog,
 	solver: PlacementSolver,
 	context: Dictionary,
+	owner_region: Dictionary,
 	binding: Dictionary = {}
 ) -> ResolvedDistribution:
 	last_error = ""
 	var out := ResolvedDistribution.new()
 	out.id = String(item.get("id", ""))
 	out.semantic_type = String(item.get("type", ""))
-	var candidate_prototype_ids := catalog.get_prototype_ids(out.semantic_type)
+	out.owner_region_id = String(owner_region.get("id", ""))
+	out.owner_region_type = String(owner_region.get("type", ""))
+	var candidate_prototype_ids := catalog.get_prototype_ids(
+		out.semantic_type,
+		out.owner_region_type
+	)
 	if candidate_prototype_ids.is_empty():
-		last_error = "Backend capability missing: no TSCN prototype for Distribution '%s' (type='%s')" % [out.id, out.semantic_type]
+		last_error = "Backend capability missing: no compatible prototype for Distribution '%s' (type='%s', owner_region_type='%s')" % [out.id, out.semantic_type, out.owner_region_type]
 		return null
 
 	var meta := _combined_population_metadata(catalog, candidate_prototype_ids)
@@ -84,7 +86,7 @@ func lower(
 	if count < 0:
 		last_error = "Placement failed for Distribution '%s': density placement has no usable area" % out.id
 		return null
-	var variants := _choose_instance_variants(catalog, out.semantic_type, out.id, count, solver)
+	var variants := _choose_instance_variants(catalog, candidate_prototype_ids, out.id, count, solver)
 	var instance_prototype_ids: Array[String] = variants["prototype_ids"]
 	var instance_scales: Array[float] = variants["scales"]
 
@@ -102,18 +104,10 @@ func lower(
 			return null
 		return out
 
-	var arrangement_is_specified := population.has("arrangement")
 	var arrangement := String(population.get("arrangement", {}).get("type", "random"))
-	# Missing arrangement is unspecified World IR, so the backend may choose a
-	# natural forest realization. Every explicit arrangement remains authoritative:
-	# random stays unclustered random, clustered uses its own clustering algorithm,
-	# and uniform uses its regularized placement path.
-	var realization_profile: Dictionary = {}
-	if density_profile.is_empty() and not arrangement_is_specified:
-		realization_profile = _forest_realization_profile(out, placement, context, domain)
 	var ok: bool = true
 	if arrangement == "clustered":
-		ok = _place_clustered(out, instance_prototype_ids, instance_scales, count, radius, placement, context, solver, domain, density_profile, realization_profile)
+		ok = _place_clustered(out, instance_prototype_ids, instance_scales, count, radius, placement, context, solver, domain, density_profile)
 	else:
 		ok = _place_scattered(
 			out,
@@ -126,8 +120,7 @@ func lower(
 			solver,
 			domain,
 			arrangement == "uniform",
-			density_profile,
-			realization_profile
+			density_profile
 		)
 	if not ok:
 		return null
@@ -158,14 +151,13 @@ func _combined_population_metadata(catalog: PrototypeCatalog, prototype_ids: Arr
 
 func _choose_instance_variants(
 	catalog: PrototypeCatalog,
-	semantic_type: String,
+	options: Array[String],
 	distribution_id: String,
 	count: int,
 	solver: PlacementSolver
 ) -> Dictionary:
 	var prototype_ids: Array[String] = []
 	var scales: Array[float] = []
-	var options := catalog.get_prototype_ids(semantic_type)
 	for index in range(count):
 		var variant_rng := solver.local_rng(distribution_id, index, VARIANT_SEED_SALT)
 		var variant := catalog.choose_population_variant(options, variant_rng)
@@ -324,8 +316,7 @@ func _place_scattered(
 	solver: PlacementSolver,
 	domain: Rect2,
 	uniform: bool,
-	density_profile: Dictionary,
-	realization_profile: Dictionary
+	density_profile: Dictionary
 ) -> bool:
 	if count <= 0:
 		return true
@@ -341,7 +332,6 @@ func _place_scattered(
 			solver,
 			domain,
 			density_profile,
-			realization_profile,
 			position_rng
 		)
 		if not bool(candidate.get("ok", false)):
@@ -384,7 +374,6 @@ func _place_uniform(
 				solver,
 				domain,
 				density_profile,
-				{},
 				position_rng
 			)
 			if not bool(fallback_result.get("ok", false)):
@@ -406,8 +395,7 @@ func _place_clustered(
 	context: Dictionary,
 	solver: PlacementSolver,
 	domain: Rect2,
-	density_profile: Dictionary,
-	realization_profile: Dictionary
+	density_profile: Dictionary
 ) -> bool:
 	if count <= 0:
 		return true
@@ -422,7 +410,6 @@ func _place_clustered(
 			solver,
 			domain,
 			density_profile,
-			realization_profile,
 			center_rng
 		)
 		if not bool(center_result.get("ok", false)):
@@ -434,10 +421,7 @@ func _place_clustered(
 		var center: Vector2 = centers[i % centers.size()]
 		var position_rng := solver.local_rng(out.id, i, POSITION_SEED_SALT)
 		var p: Vector2 = center + Vector2.from_angle(position_rng.randf_range(0.0, TAU)) * position_rng.randf_range(2.0, 13.0)
-		var weight: float = (
-			_profile_weight(p, density_profile, domain, context, solver)
-			* _realization_weight(p, realization_profile)
-		)
+		var weight := _profile_weight(p, density_profile, domain, context, solver)
 		var accepted: bool = (
 			domain.has_point(p)
 			and solver.is_candidate_valid(p, placement, radius, context)
@@ -451,7 +435,6 @@ func _place_clustered(
 				solver,
 				domain,
 				density_profile,
-				realization_profile,
 				position_rng
 			)
 			if not bool(candidate.get("ok", false)):
@@ -470,10 +453,9 @@ func _weighted_candidate(
 	solver: PlacementSolver,
 	domain: Rect2,
 	density_profile: Dictionary,
-	realization_profile: Dictionary,
 	candidate_rng: RandomNumberGenerator
 ) -> Dictionary:
-	if density_profile.is_empty() and realization_profile.is_empty():
+	if density_profile.is_empty():
 		return solver.try_resolve_candidate(placement, radius, context, domain, candidate_rng)
 
 	var best_position: Vector2 = Vector2.ZERO
@@ -484,10 +466,7 @@ func _weighted_candidate(
 		if not bool(result.get("ok", false)):
 			continue
 		var candidate: Vector2 = result["position"]
-		var weight: float = (
-			_profile_weight(candidate, density_profile, domain, context, solver)
-			* _realization_weight(candidate, realization_profile)
-		)
+		var weight := _profile_weight(candidate, density_profile, domain, context, solver)
 		if weight > best_weight:
 			best_position = candidate
 			best_weight = weight
@@ -497,104 +476,6 @@ func _weighted_candidate(
 	if found:
 		return {"ok": true, "position": best_position}
 	return {"ok": false, "error": "No valid weighted candidate satisfies placement constraints"}
-
-func _forest_realization_profile(
-	out: ResolvedDistribution,
-	placement: Dictionary,
-	context: Dictionary,
-	domain: Rect2
-) -> Dictionary:
-	if out.semantic_type != "tree":
-		return {}
-	var forest_id := _relation_target(placement.get("relations", []), "inside")
-	var forest: ResolvedRegion = context.get("regions", {}).get(forest_id)
-	if forest == null or forest.semantic_type != "forest" or forest.polygon.size() < 3:
-		return {}
-
-	var local_rng := RandomNumberGenerator.new()
-	local_rng.seed = int(context.get("seed", 0)) ^ int(out.id.hash()) ^ 0x464F5245
-	var shortest_side := minf(domain.size.x, domain.size.y)
-	var edge_depth := maxf(4.0, shortest_side * FOREST_INTERIOR_DEPTH_RATIO)
-	var cluster_radius := maxf(7.0, shortest_side * FOREST_CLUSTER_RADIUS_RATIO)
-	var centers: Array[Vector2] = []
-	for _center_index in range(FOREST_CLUSTER_COUNT):
-		var center := _sample_profile_point(local_rng, domain, forest.polygon, edge_depth * 0.45, centers, cluster_radius * 0.65)
-		if center != Vector2.INF:
-			centers.append(center)
-	if centers.is_empty():
-		return {}
-	var clearing := _sample_profile_point(local_rng, domain, forest.polygon, edge_depth * 0.25, centers, cluster_radius * 0.8)
-	return {
-		"polygon": forest.polygon,
-		"centers": centers,
-		"cluster_radius": cluster_radius,
-		"edge_depth": edge_depth,
-		"clearing": clearing,
-		"clearing_radius": cluster_radius * 0.55,
-	}
-
-func _sample_profile_point(
-	rng: RandomNumberGenerator,
-	domain: Rect2,
-	polygon: PackedVector2Array,
-	minimum_edge_distance: float,
-	avoid: Array[Vector2],
-	minimum_separation: float
-) -> Vector2:
-	var best := Vector2.INF
-	var best_score := -INF
-	for _attempt in range(64):
-		var candidate := Vector2(
-			rng.randf_range(domain.position.x, domain.end.x),
-			rng.randf_range(domain.position.y, domain.end.y)
-		)
-		if not Geometry2D.is_point_in_polygon(candidate, polygon):
-			continue
-		var edge_distance := _distance_to_polygon_edge(candidate, polygon)
-		var separation := INF
-		for other in avoid:
-			separation = minf(separation, candidate.distance_to(other))
-		var score := minf(edge_distance / maxf(0.001, minimum_edge_distance), separation / maxf(0.001, minimum_separation))
-		if avoid.is_empty():
-			score = edge_distance / maxf(0.001, minimum_edge_distance)
-		if score > best_score:
-			best = candidate
-			best_score = score
-		if edge_distance >= minimum_edge_distance and (avoid.is_empty() or separation >= minimum_separation):
-			return candidate
-	return best
-
-func _realization_weight(p: Vector2, profile: Dictionary) -> float:
-	if profile.is_empty():
-		return 1.0
-	var polygon: PackedVector2Array = profile.get("polygon", PackedVector2Array())
-	var edge_distance := _distance_to_polygon_edge(p, polygon)
-	var edge_t := smoothstep(0.0, float(profile.get("edge_depth", 8.0)), edge_distance)
-	var edge_weight := lerpf(FOREST_EDGE_DENSITY, 1.0, edge_t)
-
-	var cluster_radius := float(profile.get("cluster_radius", 10.0))
-	var cluster_affinity := 0.0
-	for center: Vector2 in profile.get("centers", []):
-		cluster_affinity = maxf(cluster_affinity, 1.0 - p.distance_to(center) / cluster_radius)
-	cluster_affinity = clampf(cluster_affinity, 0.0, 1.0)
-	var cluster_weight := lerpf(0.28, 1.0, pow(cluster_affinity, 1.35))
-
-	var clearing_weight := 1.0
-	var clearing: Vector2 = profile.get("clearing", Vector2.INF)
-	if clearing != Vector2.INF:
-		var clearing_t := clampf(p.distance_to(clearing) / float(profile.get("clearing_radius", 5.0)), 0.0, 1.0)
-		clearing_weight = lerpf(0.10, 1.0, smoothstep(0.0, 1.0, clearing_t))
-	return clampf(edge_weight * cluster_weight * clearing_weight, 0.025, 1.0)
-
-func _distance_to_polygon_edge(p: Vector2, polygon: PackedVector2Array) -> float:
-	if polygon.size() < 2:
-		return 0.0
-	var result := INF
-	for index in range(polygon.size()):
-		var a := polygon[index]
-		var b := polygon[(index + 1) % polygon.size()]
-		result = minf(result, p.distance_to(Geometry2D.get_closest_point_to_segment(p, a, b)))
-	return result
 
 func _profile_weight(
 	p: Vector2,
