@@ -4,6 +4,7 @@ extends Node
 const SceneTransitionScript = preload("res://scripts/runtime/scene_transition.gd")
 const ENVIRONMENT_BLEND_SPEED := 1.65
 const GROUND_TEXTURE_SIZE := 1024
+const UPDATE_BUILD_SLICE_USEC := 4500
 const GROUND_TEXTURES := {
     "grass": {
         "albedo": "res://assets/oweng/terrain/grass_path_2/grass_path_2_diff_2k.jpg",
@@ -58,16 +59,14 @@ func _process(delta: float) -> void:
     update_visual_environment(_player.global_position, delta)
 
 func build_candidate(resolved: ResolvedWorld, catalog: PrototypeCatalog) -> Node3D:
-    var root := Node3D.new()
-    root.name = "CandidateWorld"
-    root.set_meta("resolved_world", resolved)
-    var terrain_layer := Node3D.new(); terrain_layer.name = "Terrain"; root.add_child(terrain_layer)
-    var water_layer := Node3D.new(); water_layer.name = "Water"; root.add_child(water_layer)
-    var regions := Node3D.new(); regions.name = "Regions"; root.add_child(regions)
-    var networks := Node3D.new(); networks.name = "Networks"; root.add_child(networks)
-    var entities := Node3D.new(); entities.name = "Entities"; root.add_child(entities)
-    var distributions := Node3D.new(); distributions.name = "Distributions"; root.add_child(distributions)
-    var decorations := Node3D.new(); decorations.name = "Decorations"; root.add_child(decorations)
+    var root := _new_candidate_root(resolved)
+    var terrain_layer := root.get_node("Terrain") as Node3D
+    var water_layer := root.get_node("Water") as Node3D
+    var regions := root.get_node("Regions") as Node3D
+    var networks := root.get_node("Networks") as Node3D
+    var entities := root.get_node("Entities") as Node3D
+    var distributions := root.get_node("Distributions") as Node3D
+    var decorations := root.get_node("Decorations") as Node3D
 
     if resolved.terrain != null:
         terrain_layer.add_child(_build_terrain(resolved.terrain))
@@ -104,6 +103,149 @@ func build_candidate(resolved: ResolvedWorld, catalog: PrototypeCatalog) -> Node
             group.add_child(node)
     return root
 
+# Build only resources needed by SceneDiff. Work is sliced across frames so an
+# incoming IR edit never synchronously duplicates the complete active world.
+func build_transition_candidate(
+    resolved: ResolvedWorld,
+    catalog: PrototypeCatalog,
+    old_world: ResolvedWorld
+) -> Node3D:
+    var patch := scene_diff.compare(old_world, resolved)
+    var root := _new_candidate_root(resolved)
+    root.set_meta("scene_patch", patch)
+    var prototype_count := 0
+    var frame_yields := 0
+    var slice_started := Time.get_ticks_usec()
+
+    if bool(patch.get("terrain_changed", false)):
+        # Terrain mesh and collision are the largest individual build. Isolate
+        # them from lowering and object instantiation frames.
+        await get_tree().process_frame
+        frame_yields += 1
+        if resolved.terrain != null:
+            (root.get_node("Terrain") as Node3D).add_child(_build_terrain(resolved.terrain))
+        await get_tree().process_frame
+        frame_yields += 1
+        slice_started = Time.get_ticks_usec()
+
+    for record: Dictionary in _changed_records(patch.regions, ["added", "changed"]):
+        var region := record.get("new") as ResolvedRegion
+        if region != null:
+            (root.get_node("Regions") as Node3D).add_child(
+                _build_region(region, resolved.terrain == null)
+            )
+        if Time.get_ticks_usec() - slice_started >= UPDATE_BUILD_SLICE_USEC:
+            await get_tree().process_frame
+            frame_yields += 1
+            slice_started = Time.get_ticks_usec()
+
+    for record: Dictionary in _changed_records(patch.networks, ["added", "changed"]):
+        var network := record.get("new") as ResolvedNetwork
+        if network != null:
+            (root.get_node("Networks") as Node3D).add_child(
+                road_builder.build(network, resolved.terrain)
+            )
+        if Time.get_ticks_usec() - slice_started >= UPDATE_BUILD_SLICE_USEC:
+            await get_tree().process_frame
+            frame_yields += 1
+            slice_started = Time.get_ticks_usec()
+
+    for record: Dictionary in _changed_records(patch.waters, ["added", "changed"]):
+        var water := record.get("new") as ResolvedWater
+        if water != null:
+            (root.get_node("Water") as Node3D).add_child(_build_water(water))
+        if Time.get_ticks_usec() - slice_started >= UPDATE_BUILD_SLICE_USEC:
+            await get_tree().process_frame
+            frame_yields += 1
+            slice_started = Time.get_ticks_usec()
+
+    for record: Dictionary in _changed_records(patch.entities, ["added", "replaced"]):
+        var entity := record.get("new") as ResolvedEntity
+        if entity == null:
+            continue
+        var entity_node := _instantiate(entity.prototype_id, catalog)
+        if entity_node == null:
+            root.free()
+            return null
+        entity_node.name = _safe_name(entity.id)
+        entity_node.transform = entity.transform
+        (root.get_node("Entities") as Node3D).add_child(entity_node)
+        prototype_count += 1
+        if Time.get_ticks_usec() - slice_started >= UPDATE_BUILD_SLICE_USEC:
+            await get_tree().process_frame
+            frame_yields += 1
+            slice_started = Time.get_ticks_usec()
+
+    for record: Dictionary in _changed_records(
+        patch.distribution_instances, ["added", "replaced"]
+    ):
+        if not _add_instance_record(root, "Distributions", record, catalog):
+            root.free()
+            return null
+        prototype_count += 1
+        if Time.get_ticks_usec() - slice_started >= UPDATE_BUILD_SLICE_USEC:
+            await get_tree().process_frame
+            frame_yields += 1
+            slice_started = Time.get_ticks_usec()
+
+    for record: Dictionary in _changed_records(
+        patch.decoration_instances, ["added", "replaced"]
+    ):
+        if not _add_instance_record(root, "Decorations", record, catalog):
+            root.free()
+            return null
+        prototype_count += 1
+        if Time.get_ticks_usec() - slice_started >= UPDATE_BUILD_SLICE_USEC:
+            await get_tree().process_frame
+            frame_yields += 1
+            slice_started = Time.get_ticks_usec()
+
+    root.set_meta("instantiated_prototype_count", prototype_count)
+    root.set_meta("build_frame_yields", frame_yields)
+    return root
+
+func _new_candidate_root(resolved: ResolvedWorld) -> Node3D:
+    var root := Node3D.new()
+    root.name = "CandidateWorld"
+    root.set_meta("resolved_world", resolved)
+    for layer_name in [
+        "Terrain", "Water", "Regions", "Networks", "Entities", "Distributions", "Decorations"
+    ]:
+        var layer := Node3D.new()
+        layer.name = layer_name
+        root.add_child(layer)
+    return root
+
+func _changed_records(bucket: Dictionary, categories: Array) -> Array:
+    var result: Array = []
+    for category in categories:
+        result.append_array(bucket.get(String(category), []))
+    return result
+
+func _add_instance_record(
+    root: Node3D,
+    layer_name: String,
+    record: Dictionary,
+    catalog: PrototypeCatalog
+) -> bool:
+    var value: Dictionary = record.get("new", {})
+    if value.is_empty():
+        return true
+    var node := _instantiate(String(value.get("prototype_id", "")), catalog)
+    if node == null:
+        return false
+    node.name = _safe_name(String(record.get("id", "")))
+    node.transform = value.get("transform", Transform3D.IDENTITY)
+    var layer := root.get_node(layer_name) as Node3D
+    var owner_name := _safe_name(String(record.get("owner_id", "")))
+    var group := layer.get_node_or_null(owner_name) as Node3D
+    if group == null:
+        group = Node3D.new()
+        group.name = owner_name
+        layer.add_child(group)
+    group.add_child(node)
+    return true
+
 func commit_candidate(world_root: Node3D, candidate: Node3D) -> void:
     for child in world_root.get_children():
         world_root.remove_child(child)
@@ -122,7 +264,11 @@ func transition_candidate(
     if active_root == null or old_world == null:
         commit_candidate(world_root, candidate)
         return scene_diff.compare(old_world, new_world)
-    var patch := scene_diff.compare(old_world, new_world)
+    var patch: Dictionary = (
+        candidate.get_meta("scene_patch") as Dictionary
+        if candidate.has_meta("scene_patch")
+        else scene_diff.compare(old_world, new_world)
+    )
     await scene_transition.apply(active_root, candidate, patch, new_world)
     _activate_visual_world(new_world)
     return patch
@@ -498,8 +644,13 @@ void fragment() {
 func _load_ground_texture(path: String) -> ImageTexture:
     # Read source pixels directly so the runtime and tests do not depend on
     # editor-generated .import remaps for the migrated OwenG textures.
+    var file := FileAccess.open(path, FileAccess.READ)
+    if file == null:
+        push_error("Failed to open OwenG ground texture '%s'" % path)
+        return null
+    var bytes := file.get_buffer(file.get_length())
     var image := Image.new()
-    var error := image.load(path)
+    var error := image.load_jpg_from_buffer(bytes)
     if error != OK:
         push_error("Failed to load OwenG ground texture '%s': %s" % [path, error_string(error)])
         return null

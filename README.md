@@ -79,6 +79,9 @@ Implemented:
 - Stable Resolved SceneDiff reports object-level added/removed/changed or moved/replaced/unchanged records for incremental transitions.
 - Incremental World Rewrite transitions preserve unchanged Node identity; changed objects grow/fade/move/crossfade with bounded spatial stagger and a restrained local ground ripple.
 - Distribution variants, yaw, candidates, clusters, and along-road slots use object-local deterministic streams; count changes preserve existing instance prefixes when spatial constraints remain compatible.
+- OwenG presentation scale is calibrated above raw source size, while runtime collision boxes stay inset from measured visual bounds.
+- Tree density treats overlapping canopies as normal forest composition: default coastal calibration is roughly `medium=54`, `high=136` before other-object occupancy.
+- IR updates build only SceneDiff-added/replaced prototypes; population-only edits reuse the committed Terrain resource, while terrain-changing candidates are built in short frame slices.
 - The default offline fixture is the complete three-Region OwenG world; fake-compiler prompts for fewer snow rocks or more coastal trees exercise stable population edits without an LLM server.
 - Regions use deterministic bounded claims: anchors and relations establish seeds, configured area budgets limit spread, and same-layer Regions arbitrate contested ground without filling the world.
 - Region profiles never create semantic objects; vegetation, rocks, and entities are realized only when explicitly present in IR.
@@ -92,7 +95,7 @@ Implemented:
 
 Deliberately still simple:
 
-- Region geometry uses lightly irregular deterministic polygons as mask domains; V0 terrain is one bounded 129×129 mesh, not a streaming/erosion terrain system.
+- Region geometry uses lightly irregular deterministic polygons as mask domains; V0 terrain is one bounded 97×97 mesh, not a streaming/erosion terrain system.
 - Roads bend lightly; terrain is graded beneath the core/shoulder, the ribbon is longitudinally densified, and both edges independently sample terrain. Topology routing remains a simple deterministic heuristic.
 - Density gradient uses qualitative weighted sampling; it is intentionally not a numeric density-field solver.
 - Path geometry changes currently use ripple-assisted crossfade rather than spline morphing; Terrain swaps its whole mesh at the ripple peak rather than chunking or vertex morphing.

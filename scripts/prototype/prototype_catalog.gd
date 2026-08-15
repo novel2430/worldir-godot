@@ -246,11 +246,45 @@ const OWENG_PROTOTYPES := {
 }
 
 const DISTRIBUTION_TYPES := ["tree", "grass", "shrub", "rock"]
+const OWENG_VISUAL_SCALE := 1.22
+const BOX_COLLISION_XZ_SCALE := 0.68
+const BOX_COLLISION_Y_SCALE := 0.86
+const CYLINDER_COLLISION_RADIUS_SCALE := 0.78
+const TREE_POPULATION_FOOTPRINT_SCALE := 0.60
 
 var _region_profiles := RegionProfileCatalog.new()
 
 var _scene_cache: Dictionary = {}
 var _metadata_cache: Dictionary = {}
+
+# Parse any GLTF resources the candidate IR can select before backend lowering
+# moves to a worker thread. One uncached source is prepared per frame so a new
+# asset family cannot monopolize a single render frame.
+func prepare_for_world_ir(world_ir: Dictionary) -> bool:
+    var region_types := {}
+    for region: Dictionary in world_ir.get("regions", []):
+        region_types[String(region.get("id", ""))] = String(region.get("type", ""))
+    var required := {}
+    for collection_name in ["entities", "distributions"]:
+        for item: Dictionary in world_ir.get(collection_name, []):
+            var owner_id := ""
+            for relation: Dictionary in item.get("placement", {}).get("relations", []):
+                if String(relation.get("type", "")) == "inside":
+                    owner_id = String(relation.get("target", ""))
+                    break
+            var owner_type := String(region_types.get(owner_id, ""))
+            for prototype_id in get_prototype_ids(String(item.get("type", "")), owner_type):
+                required[prototype_id] = true
+    var required_ids: Array = required.keys()
+    required_ids.sort()
+    for prototype_id: String in required_ids:
+        if _metadata_cache.has(prototype_id):
+            continue
+        if is_inside_tree():
+            await get_tree().process_frame
+        if get_metadata(prototype_id).is_empty():
+            return false
+    return true
 
 func choose_prototype(
     semantic_type: String,
@@ -376,7 +410,7 @@ func instantiate_prototype(prototype_id: String) -> WorldPrototype:
     source.name = "Model"
     var bounds_position: Vector3 = descriptor.bounds_position
     var bounds_size: Vector3 = descriptor.bounds_size
-    var model_scale := float(descriptor.get("model_scale", 1.0))
+    var model_scale := float(descriptor.get("model_scale", 1.0)) * OWENG_VISUAL_SCALE
     source.scale = Vector3.ONE * model_scale
     source.position = Vector3(
         -(bounds_position.x + bounds_size.x * 0.5) * model_scale,
@@ -391,13 +425,19 @@ func instantiate_prototype(prototype_id: String) -> WorldPrototype:
         collision.name = "Collision"
         if collision_kind == "cylinder":
             var cylinder := CylinderShape3D.new()
-            cylinder.radius = float(descriptor.collision_radius)
+            cylinder.radius = (
+                float(descriptor.collision_radius) * CYLINDER_COLLISION_RADIUS_SCALE
+            )
             cylinder.height = float(descriptor.collision_height)
             collision.shape = cylinder
             collision.position.y = cylinder.height * 0.5
         else:
             var box := BoxShape3D.new()
-            box.size = bounds_size * model_scale
+            box.size = bounds_size * model_scale * Vector3(
+                BOX_COLLISION_XZ_SCALE,
+                BOX_COLLISION_Y_SCALE,
+                BOX_COLLISION_XZ_SCALE
+            )
             collision.shape = box
             collision.position.y = box.size.y * 0.5
         root.add_child(collision)
@@ -418,6 +458,10 @@ func get_metadata(prototype_id: String) -> Dictionary:
     if collision_footprint.x <= 0.0 or collision_footprint.y <= 0.0:
         collision_footprint = fallback_size
     var population_footprint := visual_footprint
+    if instance.semantic_type == "tree" and OWENG_PROTOTYPES.has(prototype_id):
+        # Forest canopies should overlap visually. Placement collision remains
+        # trunk-based, while density estimation uses a smaller crown footprint.
+        population_footprint *= TREE_POPULATION_FOOTPRINT_SCALE
     if instance.population_footprint_override.x > 0.0 and instance.population_footprint_override.y > 0.0:
         population_footprint = instance.population_footprint_override
     var collision_radius := collision_footprint.length() * 0.5
@@ -448,6 +492,9 @@ func get_metadata(prototype_id: String) -> Dictionary:
         meta["source_path"] = descriptor.get("source_path", "")
         meta["license"] = descriptor.get("license", "")
         meta["scale_correction"] = descriptor.get("scale_correction", 1.0)
+        meta["presentation_scale"] = OWENG_VISUAL_SCALE
+        meta["collision_xz_scale"] = BOX_COLLISION_XZ_SCALE
+        meta["collision_shape"] = descriptor.get("collision_shape", "")
     instance.free()
     _metadata_cache[prototype_id] = meta
     return meta

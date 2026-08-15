@@ -34,6 +34,7 @@ func _run() -> void:
         var tree_id := stable_tree.get_instance_id()
         var terrain_id := stable_terrain.get_instance_id()
         var road_id := stable_road.get_instance_id()
+        var terrain_resource := coordinator.current_resolved.terrain
         coordinator.scene_runtime.scene_transition.duration_scale = 0.02
         coordinator.submit_prompt("保持当前世界不变")
         for _frame in range(120):
@@ -61,6 +62,7 @@ func _run() -> void:
             not coordinator.scene_runtime.scene_transition.last_patch_summary.ripple_spawned,
             "No-op edit must not play rewrite feedback"
         )
+        _expect(bool(coordinator.last_update_timings_ms.terrain_reused), "No-op edit must reuse terrain")
 
         var old_snow_count := coordinator.current_resolved.find_distribution("snow_rocks").instances.size()
         var stable_rock := main.get_node(
@@ -75,6 +77,8 @@ func _run() -> void:
             (main.get_node("WorldRoot/GeneratedWorld/Distributions/snow_rocks/snow_rocks_000") as Node3D).get_instance_id() == stable_rock_id,
             "Snow-rock edit must preserve retained instance Node identity"
         )
+        _expect(coordinator.current_resolved.terrain == terrain_resource, "Population reduction must reuse terrain data")
+        _expect(int(coordinator.last_update_timings_ms.candidate_prototypes) == 0, "Population reduction must not build unchanged prototypes")
 
         var old_coastal_count := coordinator.current_resolved.find_distribution("coastal_trees").instances.size()
         var retained_tree := main.get_node(
@@ -89,6 +93,7 @@ func _run() -> void:
             (main.get_node("WorldRoot/GeneratedWorld/Distributions/coastal_trees/coastal_trees_000") as Node3D).get_instance_id() == retained_tree_id,
             "Coastal-tree edit must preserve existing instance Node identity"
         )
+        _expect(coordinator.current_resolved.terrain == terrain_resource, "Population growth must reuse terrain data")
     main.free()
     if failures == 0:
         print("Main scene smoke test passed")

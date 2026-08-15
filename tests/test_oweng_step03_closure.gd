@@ -30,8 +30,10 @@ func _run() -> void:
     catalog = PrototypeCatalog.new()
     root.add_child(catalog)
     _test_complete_owner_aware_policy()
+    _test_scale_collision_and_dense_forest()
     await _test_stable_population_edits()
     await _test_region_type_edit()
+    await _test_incremental_west_snow_region_add()
     _test_single_path_edit()
     await _test_candidate_failure_preserves_committed_world()
     print("OwenG Step 03 closure tests passed")
@@ -67,6 +69,31 @@ func _test_complete_owner_aware_policy() -> void:
         assert(distribution != null)
         if String(item.population.amount.mode) == "count":
             assert(distribution.instances.size() == int(item.population.amount.value))
+
+func _test_scale_collision_and_dense_forest() -> void:
+    for prototype_id in PrototypeCatalog.OWENG_PROTOTYPES.keys():
+        var metadata := catalog.get_metadata(String(prototype_id))
+        assert(is_equal_approx(float(metadata.presentation_scale), 1.22))
+        if String(metadata.get("collision_shape", "")).is_empty():
+            continue
+        var visual: Vector2 = metadata.visual_footprint
+        var collision: Vector2 = metadata.collision_footprint
+        assert(
+            collision.x < visual.x * 0.92 and collision.y < visual.y * 0.92,
+            "Collision should stay inside visual bounds for %s: visual=%s collision=%s"
+            % [prototype_id, visual, collision]
+        )
+
+    var backend := WorldBackend.new()
+    var medium := backend.lower(_population_ir("medium", "medium"), catalog, 48031)
+    var high := backend.lower(_population_ir("high", "medium"), catalog, 48031)
+    assert(medium.errors.is_empty(), " | ".join(medium.errors))
+    assert(high.errors.is_empty(), " | ".join(high.errors))
+    var medium_count := medium.find_distribution("coastal_trees").instances.size()
+    var high_count := high.find_distribution("coastal_trees").instances.size()
+    assert(high_count >= 90, "High-density forest should be visually dense")
+    assert(high_count > medium_count)
+    print("Forest density calibration: medium=%d high=%d" % [medium_count, high_count])
 
 func _test_stable_population_edits() -> void:
     var backend := WorldBackend.new(EDIT_CONFIG)
@@ -116,9 +143,15 @@ func _test_stable_population_edits() -> void:
         world_root.get_node("GeneratedWorld/Distributions/snow_rocks"),
         fewer_rocks.instances.size()
     )
+    var fewer_candidate := await runtime.build_transition_candidate(
+        rocks_reduced,
+        catalog,
+        initial
+    )
+    assert(int(fewer_candidate.get_meta("instantiated_prototype_count", -1)) == 0)
     await runtime.transition_candidate(
         world_root,
-        runtime.build_candidate(rocks_reduced, catalog),
+        fewer_candidate,
         initial,
         rocks_reduced
     )
@@ -134,9 +167,18 @@ func _test_stable_population_edits() -> void:
         world_root.get_node("GeneratedWorld/Distributions/coastal_trees"),
         old_trees.instances.size()
     )
+    var more_candidate := await runtime.build_transition_candidate(
+        trees_increased,
+        catalog,
+        rocks_reduced
+    )
+    assert(
+        int(more_candidate.get_meta("instantiated_prototype_count", -1))
+        == more_trees.instances.size() - old_trees.instances.size()
+    )
     await runtime.transition_candidate(
         world_root,
-        runtime.build_candidate(trees_increased, catalog),
+        more_candidate,
         rocks_reduced,
         trees_increased
     )
@@ -188,9 +230,20 @@ func _test_region_type_edit() -> void:
     runtime.commit_candidate(world_root, runtime.build_candidate(before, catalog))
     var old_cabin := world_root.get_node("GeneratedWorld/Entities/region_cabin") as WorldPrototype
     var old_cabin_id := old_cabin.get_instance_id()
+    var region_candidate := await runtime.build_transition_candidate(after, catalog, before)
+    var expected_prototypes: int = (
+        patch.entities.added.size()
+        + patch.entities.replaced.size()
+        + patch.distribution_instances.added.size()
+        + patch.distribution_instances.replaced.size()
+    )
+    assert(
+        int(region_candidate.get_meta("instantiated_prototype_count", -1))
+        == expected_prototypes
+    )
     await runtime.transition_candidate(
         world_root,
-        runtime.build_candidate(after, catalog),
+        region_candidate,
         before,
         after
     )
@@ -217,6 +270,42 @@ func _test_single_path_edit() -> void:
     var patch := SceneDiff.new().compare(before, after)
     assert(patch.networks.changed.size() == 1)
     assert(patch.networks.added.is_empty() and patch.networks.removed.is_empty())
+
+func _test_incremental_west_snow_region_add() -> void:
+    var fixture := _load_fixture("res://data/fixtures/oweng_final_world.json")
+    var before_ir: Dictionary = fixture.world_ir
+    var after_ir: Dictionary = before_ir.duplicate(true)
+    after_ir.regions.append({
+        "id": "west_snow_extension",
+        "type": "snow_forest",
+        "placement": {"anchor": "northwest"},
+    })
+    var backend := WorldBackend.new()
+    var before := backend.lower(before_ir, catalog, 1337)
+    var after := backend.lower(after_ir, catalog, 1337, [], {}, before)
+    assert(before.errors.is_empty(), " | ".join(before.errors))
+    assert(after.errors.is_empty(), " | ".join(after.errors))
+    assert(after.regions.size() == 4)
+    assert(after.find_region("west_snow_extension") != null)
+    assert(not bool(backend.last_stage_timings_ms.get("terrain_reused", true)))
+
+    var runtime := SceneRuntime.new()
+    root.add_child(runtime)
+    var candidate := await runtime.build_transition_candidate(after, catalog, before)
+    var full_prototype_count := after.entities.size()
+    for distribution: ResolvedDistribution in after.distributions:
+        full_prototype_count += distribution.instances.size()
+    var incremental_count := int(candidate.get_meta("instantiated_prototype_count", -1))
+    assert(incremental_count >= 0)
+    assert(incremental_count < full_prototype_count / 4)
+    assert(candidate.get_node_or_null("Terrain/WorldSurface") != null)
+    assert(int(candidate.get_meta("build_frame_yields", 0)) >= 2)
+    print(
+        "West snow Region update: full prototypes=%d incremental prototypes=%d terrain=%.1fms"
+        % [full_prototype_count, incremental_count, float(backend.last_stage_timings_ms.terrain)]
+    )
+    candidate.free()
+    runtime.free()
 
 func _test_candidate_failure_preserves_committed_world() -> void:
     var packed := load("res://scenes/main.tscn") as PackedScene

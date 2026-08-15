@@ -22,6 +22,7 @@ var compiler: CompilerClient
 var backend := WorldBackend.new()
 var current_resolved: ResolvedWorld = null
 var busy := false
+var last_update_timings_ms: Dictionary = {}
 
 func _ready() -> void:
 	runtime_fact_manager.fact_created.connect(_on_fact_created)
@@ -63,21 +64,48 @@ func _on_compile_completed(result: Dictionary) -> void:
 
 	var candidate_ir: Dictionary = result.world_ir
 	var candidate_facts := world_state.candidate_facts_after_ops(result.get("runtime_fact_ops", []))
+	var stage_started := Time.get_ticks_usec()
+	status_changed.emit("Preparing candidate assets...")
+	if not await prototype_catalog.prepare_for_world_ir(candidate_ir):
+		_finish(false, "Scene candidate asset preparation failed; old world preserved")
+		return
+	var prepare_ms := float(Time.get_ticks_usec() - stage_started) / 1000.0
+
+	status_changed.emit("Resolving candidate world...")
+	await get_tree().process_frame
+	stage_started = Time.get_ticks_usec()
 	var candidate_resolved := backend.lower(
 		candidate_ir,
 		prototype_catalog,
 		world_seed,
 		result.get("runtime_bindings", []),
-		world_state.spatial_payloads
+		world_state.spatial_payloads,
+		current_resolved
 	)
+	var lower_ms := float(Time.get_ticks_usec() - stage_started) / 1000.0
 	if not candidate_resolved.errors.is_empty():
 		_finish(false, "Backend rejected Candidate World: %s" % " | ".join(candidate_resolved.errors))
 		return
 
-	var candidate_scene := scene_runtime.build_candidate(candidate_resolved, prototype_catalog)
+	stage_started = Time.get_ticks_usec()
+	var candidate_scene: Node3D
+	if current_resolved == null:
+		candidate_scene = scene_runtime.build_candidate(candidate_resolved, prototype_catalog)
+	else:
+		status_changed.emit("Building incremental scene update...")
+		candidate_scene = await scene_runtime.build_transition_candidate(
+			candidate_resolved,
+			prototype_catalog,
+			current_resolved
+		)
+	var build_ms := float(Time.get_ticks_usec() - stage_started) / 1000.0
 	if candidate_scene == null:
 		_finish(false, "Scene candidate failed; old world preserved")
 		return
+	var candidate_prototype_count := int(
+		candidate_scene.get_meta("instantiated_prototype_count", -1)
+	)
+	var candidate_build_yields := int(candidate_scene.get_meta("build_frame_yields", 0))
 
 	if current_resolved == null:
 		scene_runtime.commit_candidate(world_root, candidate_scene)
@@ -90,6 +118,14 @@ func _on_compile_completed(result: Dictionary) -> void:
 		)
 	world_state.commit(candidate_ir, candidate_facts)
 	current_resolved = candidate_resolved
+	last_update_timings_ms = {
+		"prepare": prepare_ms,
+		"lowering": lower_ms,
+		"terrain_reused": bool(backend.last_stage_timings_ms.get("terrain_reused", false)),
+		"candidate_build": build_ms,
+		"candidate_prototypes": candidate_prototype_count,
+		"candidate_build_yields": candidate_build_yields,
+	}
 	world_committed.emit(candidate_resolved)
 	var warning_text := "" if candidate_resolved.warnings.is_empty() else " | warnings: %s" % ", ".join(candidate_resolved.warnings)
 	_finish(true, "World committed: %d regions, %d networks, %d entities%s" % [candidate_resolved.regions.size(), candidate_resolved.networks.size(), candidate_resolved.entities.size(), warning_text])

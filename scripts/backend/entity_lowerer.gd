@@ -32,7 +32,7 @@ func lower(
         last_error = "Backend capability missing: no compatible prototype for Entity '%s' (type='%s', owner_region_type='%s')" % [out.id, out.semantic_type, out.owner_region_type]
         return null
 
-    var meta := catalog.get_metadata(out.prototype_id)
+    var meta: Dictionary = catalog.get_metadata(out.prototype_id)
     var radius := float(meta.get("placement_radius", 1.0)) + float(meta.get("clearance", 0.0))
     var placement: Dictionary = item.get("placement", {})
     var preferred: Rect2 = binding_resolver.resolve_domain(

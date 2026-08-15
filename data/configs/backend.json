@@ -11,16 +11,16 @@
     "snow_forest": 7200.0
   },
   "default_population_budget": 12,
-  "random_packing_loss": 1.2,
+  "random_packing_loss": 1.1,
   "density_spacing_multipliers": {
     "low": 1.6,
-    "medium": 1.0,
-    "high": 0.45
+    "medium": 0.85,
+    "high": 0.18
   },
   "population_caps": {
-    "tree": 80,
-    "grass": 180,
-    "shrub": 100,
-    "rock": 80
+    "tree": 140,
+    "grass": 220,
+    "shrub": 140,
+    "rock": 90
   }
 }

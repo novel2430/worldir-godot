@@ -17,6 +17,7 @@ var region_claim_resolver: RefCounted = RegionClaimResolverScript.new()
 var owner_region_resolver: RefCounted = OwnerRegionResolverScript.new()
 var region_profile_catalog: RefCounted = RegionProfileCatalogScript.new()
 var config: RefCounted
+var last_stage_timings_ms: Dictionary = {}
 
 func _init(config_overrides: Dictionary = {}) -> void:
 	config = BackendConfigScript.new(config_overrides)
@@ -28,8 +29,12 @@ func lower(
 	catalog: PrototypeCatalog,
 	seed_value: int = -1,
 	runtime_bindings: Array = [],
-	spatial_payloads: Dictionary = {}
+	spatial_payloads: Dictionary = {},
+	previous_world: ResolvedWorld = null
 ) -> ResolvedWorld:
+	var total_started := Time.get_ticks_usec()
+	var stage_started := total_started
+	last_stage_timings_ms = {}
 	var out := ResolvedWorld.new()
 	var effective_seed: int = config.seed if seed_value < 0 else seed_value
 	out.seed = effective_seed
@@ -63,6 +68,8 @@ func lower(
 	_validate_binding_capability(runtime_bindings, spatial_payloads, out)
 	if not out.errors.is_empty():
 		return out
+	last_stage_timings_ms["setup"] = float(Time.get_ticks_usec() - stage_started) / 1000.0
+	stage_started = Time.get_ticks_usec()
 
 	var region_items: Array = world_ir.get("regions", [])
 	if not owner_region_resolver.validate_regions(region_items, ir_kinds):
@@ -102,6 +109,8 @@ func lower(
 	# so callers never observe a gratuitous collection reorder.
 	for item in region_items:
 		out.regions.append(resolved_regions_by_id[String(item.get("id", ""))])
+	last_stage_timings_ms["regions"] = float(Time.get_ticks_usec() - stage_started) / 1000.0
+	stage_started = Time.get_ticks_usec()
 
 	for item in world_ir.get("networks", []):
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
@@ -111,6 +120,8 @@ func lower(
 			return out
 		out.networks.append(resolved)
 		context.networks[resolved.id] = resolved
+	last_stage_timings_ms["networks"] = float(Time.get_ticks_usec() - stage_started) / 1000.0
+	stage_started = Time.get_ticks_usec()
 
 	for item in world_ir.get("entities", []):
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
@@ -124,6 +135,8 @@ func lower(
 			continue
 		out.entities.append(resolved)
 		context.entities[resolved.id] = resolved
+	last_stage_timings_ms["entities"] = float(Time.get_ticks_usec() - stage_started) / 1000.0
+	stage_started = Time.get_ticks_usec()
 
 	for item in world_ir.get("distributions", []):
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
@@ -137,14 +150,97 @@ func lower(
 			continue
 		out.distributions.append(resolved)
 		context.distributions[resolved.id] = resolved
+	last_stage_timings_ms["distributions"] = float(Time.get_ticks_usec() - stage_started) / 1000.0
+	stage_started = Time.get_ticks_usec()
 
 	# RegionProfile controls only how explicit IR objects look. It never creates
 	# semantic vegetation, rocks, props or entities on behalf of a Region.
 	if out.errors.is_empty():
-		out.terrain = terrain_resolver.resolve(out, catalog)
+		if previous_world != null and _terrain_inputs_equal(previous_world, out):
+			out.terrain = previous_world.terrain
+			last_stage_timings_ms["terrain_reused"] = true
+		else:
+			out.terrain = terrain_resolver.resolve(out, catalog)
+			last_stage_timings_ms["terrain_reused"] = false
 		terrain_resolver.conform_world(out)
+	last_stage_timings_ms["terrain"] = float(Time.get_ticks_usec() - stage_started) / 1000.0
+	last_stage_timings_ms["total"] = float(Time.get_ticks_usec() - total_started) / 1000.0
 
 	return out
+
+func _terrain_inputs_equal(old_world: ResolvedWorld, new_world: ResolvedWorld) -> bool:
+	if (
+		old_world.terrain == null
+		or old_world.seed != new_world.seed
+		or not old_world.world_bounds.is_equal_approx(new_world.world_bounds)
+		or old_world.regions.size() != new_world.regions.size()
+		or old_world.networks.size() != new_world.networks.size()
+		or old_world.entities.size() != new_world.entities.size()
+		or old_world.waters.size() != new_world.waters.size()
+	):
+		return false
+	for index in range(new_world.regions.size()):
+		var old_region: ResolvedRegion = old_world.regions[index]
+		var new_region: ResolvedRegion = new_world.regions[index]
+		if (
+			old_region.id != new_region.id
+			or old_region.semantic_type != new_region.semantic_type
+			or not _vector2_array_equal(old_region.polygon, new_region.polygon)
+		):
+			return false
+	for index in range(new_world.networks.size()):
+		var old_network: ResolvedNetwork = old_world.networks[index]
+		var new_network: ResolvedNetwork = new_world.networks[index]
+		if (
+			old_network.id != new_network.id
+			or old_network.semantic_type != new_network.semantic_type
+			or not is_equal_approx(old_network.width, new_network.width)
+			or not _curve_xz_equal(old_network.curve_points, new_network.curve_points)
+		):
+			return false
+	for index in range(new_world.entities.size()):
+		var old_entity: ResolvedEntity = old_world.entities[index]
+		var new_entity: ResolvedEntity = new_world.entities[index]
+		if (
+			old_entity.id != new_entity.id
+			or old_entity.prototype_id != new_entity.prototype_id
+			or not Vector2(
+				old_entity.transform.origin.x,
+				old_entity.transform.origin.z
+			).is_equal_approx(Vector2(
+				new_entity.transform.origin.x,
+				new_entity.transform.origin.z
+			))
+		):
+			return false
+	for index in range(new_world.waters.size()):
+		var old_water: ResolvedWater = old_world.waters[index]
+		var new_water: ResolvedWater = new_world.waters[index]
+		if (
+			old_water.id != new_water.id
+			or not is_equal_approx(old_water.sea_level, new_water.sea_level)
+			or not _vector2_array_equal(old_water.shoreline, new_water.shoreline)
+		):
+			return false
+	return true
+
+func _curve_xz_equal(a: PackedVector3Array, b: PackedVector3Array) -> bool:
+	if a.size() != b.size():
+		return false
+	for index in range(a.size()):
+		if not Vector2(a[index].x, a[index].z).is_equal_approx(
+			Vector2(b[index].x, b[index].z)
+		):
+			return false
+	return true
+
+func _vector2_array_equal(a: PackedVector2Array, b: PackedVector2Array) -> bool:
+	if a.size() != b.size():
+		return false
+	for index in range(a.size()):
+		if not a[index].is_equal_approx(b[index]):
+			return false
+	return true
 
 func _index_ir(world_ir: Dictionary, ir_objects: Dictionary, ir_kinds: Dictionary) -> void:
 	var roots := {

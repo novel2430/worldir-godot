@@ -3,7 +3,7 @@ extends RefCounted
 
 const ResolvedTerrainResource = preload("res://scripts/resolved/resolved_terrain.gd")
 
-const GRID_SIZE := 129
+const GRID_SIZE := 97
 const ROAD_SURFACE_OFFSET := 0.025
 const INSTANCE_SURFACE_OFFSET := 0.02
 const REGION_OUTER_BLEND_M := 14.0
@@ -20,8 +20,18 @@ const FOREST_HEIGHT_LIMIT := 3.55
 const FOREST_RELIEF_STRENGTH := 0.78
 
 var region_profiles := RegionProfileCatalog.new()
+var nearest_solver := PlacementSolver.new()
+var terrain_profile_values: Dictionary = {}
+var active_seed_phase := 0.0
+
+func _init() -> void:
+    for region_type in ["coastal_forest", "research_base", "snow_forest"]:
+        terrain_profile_values[region_type] = (
+            region_profiles.get_profile(region_type).get("terrain", {}).duplicate()
+        )
 
 func resolve(world: ResolvedWorld, catalog: PrototypeCatalog) -> Resource:
+    active_seed_phase = _seed_phase(world.seed)
     var terrain: Resource = ResolvedTerrainResource.new()
     terrain.world_bounds = world.world_bounds
     terrain.grid_size = GRID_SIZE
@@ -35,10 +45,22 @@ func resolve(world: ResolvedWorld, catalog: PrototypeCatalog) -> Resource:
     for z_index in range(GRID_SIZE):
         for x_index in range(GRID_SIZE):
             var point := _grid_point(world.world_bounds, x_index, z_index)
-            var masks := _surface_masks(point, world, building_influences)
+            var road_samples := _road_samples(point, world.networks)
+            var local_road_influence := 0.0
+            for road_sample: Dictionary in road_samples:
+                local_road_influence = maxf(
+                    local_road_influence,
+                    float(road_sample.get("influence", 0.0))
+                )
+            var masks := _surface_masks(
+                point,
+                world,
+                building_influences,
+                local_road_influence
+            )
             var height := _environment_height(point, world, masks)
             height = _shape_coasts(point, height, world)
-            height = _flatten_for_roads(point, height, world)
+            height = _flatten_for_roads(point, height, world, road_samples)
             height = _flatten_for_buildings(point, height, building_influences)
             var index := z_index * GRID_SIZE + x_index
             terrain.heights[index] = height
@@ -64,7 +86,12 @@ func conform_world(world: ResolvedWorld) -> void:
             transform.origin.y = world.terrain.sample_height(Vector2(transform.origin.x, transform.origin.z)) + INSTANCE_SURFACE_OFFSET
             instance["transform"] = transform
 
-func _surface_masks(point: Vector2, world: ResolvedWorld, buildings: Array) -> Color:
+func _surface_masks(
+    point: Vector2,
+    world: ResolvedWorld,
+    buildings: Array,
+    road_influence: float = -1.0
+) -> Color:
     var region_weights := _region_weights(point, world.regions)
 
     for water in world.waters:
@@ -72,7 +99,9 @@ func _surface_masks(point: Vector2, world: ResolvedWorld, buildings: Array) -> C
         var beach_influence: float = smoothstep(-18.0, -5.0, shore_distance) * water.cross_span_influence(point)
         region_weights.b = maxf(region_weights.b, beach_influence)
 
-    var local_dirt := _road_influence(point, world.networks)
+    var local_dirt := (
+        road_influence if road_influence >= 0.0 else _road_influence(point, world.networks)
+    )
     for building in buildings:
         var center: Vector2 = building["center"]
         var radius := float(building["radius"])
@@ -84,7 +113,7 @@ func _surface_masks(point: Vector2, world: ResolvedWorld, buildings: Array) -> C
     return Color(region_weights.r, region_weights.g, region_weights.b, clampf(local_dirt, 0.0, 1.0))
 
 func _environment_height(point: Vector2, world: ResolvedWorld, masks: Color) -> float:
-    var phase := _seed_phase(world.seed)
+    var phase := active_seed_phase
     var broad := (
         sin(point.x * 0.027 + phase) * 1.05
         + cos(point.y * 0.023 - phase * 0.73) * 0.85
@@ -113,7 +142,7 @@ func _profile_height(
     detail: float,
     rolling: float
 ) -> float:
-    var terrain: Dictionary = region_profiles.get_profile(region_type).get("terrain", {})
+    var terrain: Dictionary = terrain_profile_values.get(region_type, {})
     var height := (
         broad * float(terrain.get("macro_scale", 0.4))
         + detail * float(terrain.get("detail_scale", 0.15))
@@ -153,16 +182,17 @@ func _shore_wetness(point: Vector2, world: ResolvedWorld) -> float:
         result = maxf(result, land_fade * water_fade * water.cross_span_influence(point))
     return result
 
-func _flatten_for_roads(point: Vector2, height: float, world: ResolvedWorld) -> float:
+func _flatten_for_roads(
+    point: Vector2,
+    height: float,
+    world: ResolvedWorld,
+    road_samples: Array = []
+) -> float:
     var result := height
-    var solver := PlacementSolver.new()
-    for network: ResolvedNetwork in world.networks:
-        if network.curve_points.size() < 2:
-            continue
-        var nearest := solver.nearest_point_on_network(point, network)
-        var distance := point.distance_to(nearest)
-        var half_width := network.width * 0.5
-        var influence := 1.0 - smoothstep(half_width, half_width + ROAD_TERRAIN_BLEND_M, distance)
+    var samples := road_samples if not road_samples.is_empty() else _road_samples(point, world.networks)
+    for sample: Dictionary in samples:
+        var nearest: Vector2 = sample.nearest
+        var influence := float(sample.influence)
         if influence <= 0.0:
             continue
         # The target still follows the road longitudinally through the macro
@@ -171,6 +201,24 @@ func _flatten_for_roads(point: Vector2, height: float, world: ResolvedWorld) -> 
         var target_masks := _surface_masks_without_local_dirt(nearest, world)
         var target_height := _shape_coasts(nearest, _environment_height(nearest, world, target_masks), world)
         result = lerpf(result, target_height, influence)
+    return result
+
+func _road_samples(point: Vector2, networks: Array) -> Array:
+    var result: Array = []
+    for network: ResolvedNetwork in networks:
+        if network.curve_points.size() < 2:
+            continue
+        var nearest := nearest_solver.nearest_point_on_network(point, network)
+        var distance := point.distance_to(nearest)
+        var half_width := network.width * 0.5
+        result.append({
+            "nearest": nearest,
+            "influence": 1.0 - smoothstep(
+                half_width,
+                half_width + ROAD_TERRAIN_BLEND_M,
+                distance
+            ),
+        })
     return result
 
 func _flatten_for_buildings(point: Vector2, height: float, buildings: Array) -> float:
@@ -186,7 +234,7 @@ func _flatten_for_buildings(point: Vector2, height: float, buildings: Array) -> 
 func _building_influences(world: ResolvedWorld, catalog: PrototypeCatalog) -> Array:
     var result: Array = []
     for entity: ResolvedEntity in world.entities:
-        var meta := catalog.get_metadata(entity.prototype_id)
+        var meta: Dictionary = catalog.get_metadata(entity.prototype_id)
         var footprint: Vector2 = meta.get("visual_footprint", Vector2.ONE * 4.0)
         result.append(_building_influence(
             Vector2(entity.transform.origin.x, entity.transform.origin.z),
@@ -198,9 +246,8 @@ func _building_influences(world: ResolvedWorld, catalog: PrototypeCatalog) -> Ar
 func _building_influence(center: Vector2, radius: float, networks: Array) -> Dictionary:
     var closest := Vector2.INF
     var closest_distance := INF
-    var solver := PlacementSolver.new()
     for network: ResolvedNetwork in networks:
-        var point := solver.nearest_point_on_network(center, network)
+        var point := nearest_solver.nearest_point_on_network(center, network)
         var distance := center.distance_to(point)
         if distance < closest_distance:
             closest = point
@@ -231,16 +278,33 @@ func _surface_masks_without_local_dirt(point: Vector2, world: ResolvedWorld) -> 
 
 func _region_weights(point: Vector2, regions: Array) -> Color:
     var weights := Color(0.0, 0.0, 0.0, 0.0)
+    var proximity := Color(0.0, 0.0, 0.0, 0.0)
     for region: ResolvedRegion in regions:
-        var influence := _region_influence(point, region.polygon)
+        if region.polygon.size() < 3:
+            continue
+        var distance := _distance_to_polygon_edge(point, region.polygon)
+        var signed_distance := (
+            distance if Geometry2D.is_point_in_polygon(point, region.polygon) else -distance
+        )
+        var influence := smoothstep(
+            -REGION_OUTER_BLEND_M,
+            REGION_INNER_BLEND_M,
+            signed_distance
+        )
+        var proximity_influence := exp(-distance / 22.0)
         match region.semantic_type:
-            "coastal_forest": weights.r = maxf(weights.r, influence)
-            "research_base": weights.g = maxf(weights.g, influence)
-            "snow_forest": weights.b = maxf(weights.b, influence)
+            "coastal_forest":
+                weights.r = maxf(weights.r, influence)
+                proximity.r = maxf(proximity.r, proximity_influence)
+            "research_base":
+                weights.g = maxf(weights.g, influence)
+                proximity.g = maxf(proximity.g, proximity_influence)
+            "snow_forest":
+                weights.b = maxf(weights.b, influence)
+                proximity.b = maxf(proximity.b, proximity_influence)
     # A low proximity floor prevents a hard switch where two finite transition
     # bands do not quite touch (for example beyond the short ends of two claims).
     # Ownership remains polygon-based; this floor affects only visual weights.
-    var proximity := _nearest_region_weights(point, regions)
     weights.r = maxf(weights.r, proximity.r * 0.16)
     weights.g = maxf(weights.g, proximity.g * 0.16)
     weights.b = maxf(weights.b, proximity.b * 0.16)
@@ -266,9 +330,8 @@ func _nearest_region_weights(point: Vector2, regions: Array) -> Color:
 
 func _road_influence(point: Vector2, networks: Array) -> float:
     var result := 0.0
-    var solver := PlacementSolver.new()
     for network: ResolvedNetwork in networks:
-        var distance := point.distance_to(solver.nearest_point_on_network(point, network))
+        var distance := point.distance_to(nearest_solver.nearest_point_on_network(point, network))
         result = maxf(result, 1.0 - smoothstep(network.width * 0.5, network.width * 0.5 + ROAD_SHOULDER_M, distance))
     return result
 

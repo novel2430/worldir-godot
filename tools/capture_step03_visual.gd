@@ -40,9 +40,11 @@ func _run() -> void:
 
     coordinator.submit_prompt("雪林里的石头少一点")
     await _wait_until_idle()
+    var snow_edit_timings := coordinator.last_update_timings_ms.duplicate(true)
     await _capture_region("05_snow_after_fewer_rocks.png", centers.snow_forest, Vector3(27.0, 18.0, 24.0))
     coordinator.submit_prompt("海岸森林的树多一点")
     await _wait_until_idle()
+    var tree_edit_timings := coordinator.last_update_timings_ms.duplicate(true)
     await _capture_region("06_coastal_after_more_trees.png", centers.coastal_forest, Vector3(25.0, 17.0, 23.0))
 
     print(
@@ -54,6 +56,8 @@ func _run() -> void:
             coordinator.current_resolved.find_distribution("coastal_trees").instances.size(),
         ]
     )
+    print("Snow edit timings ms: ", snow_edit_timings)
+    print("Tree edit timings ms: ", tree_edit_timings)
     main.free()
     quit(0)
 

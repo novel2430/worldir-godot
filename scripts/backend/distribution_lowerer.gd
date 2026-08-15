@@ -6,8 +6,8 @@ const RuntimeBindingResolverScript = preload("res://scripts/backend/runtime_bind
 const DEFAULT_POPULATION_BUDGET := 12
 const USABLE_AREA_GRID_SIZE := 36
 const RANDOM_PACKING_LOSS := 1.2
-const DENSITY_SPACING_MULTIPLIERS := {"low": 1.6, "medium": 1.0, "high": 0.45}
-const POPULATION_CAPS := {"tree": 80, "grass": 180, "shrub": 100, "rock": 80}
+const DENSITY_SPACING_MULTIPLIERS := {"low": 1.6, "medium": 0.85, "high": 0.18}
+const POPULATION_CAPS := {"tree": 140, "grass": 220, "shrub": 140, "rock": 90}
 const DEFAULT_POPULATION_CAP := 100
 const DENSITY_WEIGHTS := {"low": 0.20, "medium": 0.55, "high": 1.0}
 const WEIGHTED_ATTEMPTS := 24
@@ -50,7 +50,7 @@ func lower(
 	out.semantic_type = String(item.get("type", ""))
 	out.owner_region_id = String(owner_region.get("id", ""))
 	out.owner_region_type = String(owner_region.get("type", ""))
-	var candidate_prototype_ids := catalog.get_prototype_ids(
+	var candidate_prototype_ids: Array[String] = catalog.get_prototype_ids(
 		out.semantic_type,
 		out.owner_region_type
 	)
@@ -127,14 +127,14 @@ func lower(
 	return out
 
 func _combined_population_metadata(catalog: PrototypeCatalog, prototype_ids: Array[String]) -> Dictionary:
-	var combined := catalog.get_metadata(prototype_ids[0]).duplicate()
+	var combined: Dictionary = catalog.get_metadata(prototype_ids[0]).duplicate()
 	var footprint := Vector2.ZERO
 	var occupancy_radius := 0.0
 	var spacing := 0.0
 	var roadside_setback := 0.0
 	var roadside_yaw_jitter_degrees := 0.0
 	for prototype_id in prototype_ids:
-		var meta := catalog.get_metadata(prototype_id)
+		var meta: Dictionary = catalog.get_metadata(prototype_id)
 		var candidate_footprint: Vector2 = meta.get("population_footprint", Vector2.ZERO)
 		footprint.x = maxf(footprint.x, candidate_footprint.x)
 		footprint.y = maxf(footprint.y, candidate_footprint.y)
@@ -160,7 +160,7 @@ func _choose_instance_variants(
 	var scales: Array[float] = []
 	for index in range(count):
 		var variant_rng := solver.local_rng(distribution_id, index, VARIANT_SEED_SALT)
-		var variant := catalog.choose_population_variant(options, variant_rng)
+		var variant: Dictionary = catalog.choose_population_variant(options, variant_rng)
 		prototype_ids.append(String(variant.get("prototype_id", "")))
 		scales.append(float(variant.get("scale", 1.0)))
 	return {"prototype_ids": prototype_ids, "scales": scales}
