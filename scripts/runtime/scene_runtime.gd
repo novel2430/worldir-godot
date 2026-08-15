@@ -3,9 +3,15 @@ extends Node
 
 const SceneTransitionScript = preload("res://scripts/runtime/scene_transition.gd")
 
+const TRANSITION_MODE_FULL_REWRITE := "FULL_REWRITE"
+const TRANSITION_MODE_LIGHT_REBASE := "LIGHT_REBASE"
+const TRANSITION_MODE_SILENT := "SILENT"
+const CHUNK_CONTENT_NAME := "GeneratedChunk"
+
 var road_builder := RoadBuilder.new()
 var scene_diff := SceneDiff.new()
 var scene_transition: RefCounted = SceneTransitionScript.new()
+var prototype_catalog: PrototypeCatalog = null
 var _terrain_material_cache: ShaderMaterial = null
 var _water_material_cache: ShaderMaterial = null
 var _foam_material_cache: ShaderMaterial = null
@@ -55,6 +61,105 @@ func build_candidate(resolved: ResolvedWorld, catalog: PrototypeCatalog) -> Node
             node.transform = instance_data.transform
             group.add_child(node)
     return root
+
+func mount_chunk(chunk_root: Node3D, resolved_chunk: ResolvedWorld) -> Node3D:
+    if prototype_catalog == null:
+        push_error("SceneRuntime.mount_chunk requires prototype_catalog")
+        return null
+    var candidate := build_candidate(resolved_chunk, prototype_catalog)
+    if candidate == null:
+        return null
+    _replace_chunk_content(chunk_root, candidate)
+    return candidate
+
+func transition_chunk(
+    chunk_root: Node3D,
+    old_resolved_chunk: ResolvedWorld,
+    new_resolved_chunk: ResolvedWorld,
+    transition_mode: String = TRANSITION_MODE_FULL_REWRITE
+):
+    if not is_transition_mode_supported(transition_mode):
+        push_error("Unknown chunk transition mode: %s" % transition_mode)
+        return null
+    var prepared := prepare_chunk_transition(old_resolved_chunk, new_resolved_chunk)
+    if prepared.is_empty():
+        return null
+    if old_resolved_chunk == null:
+        transition_mode = TRANSITION_MODE_SILENT
+    return await apply_prepared_chunk_transition(
+        chunk_root,
+        new_resolved_chunk,
+        prepared,
+        transition_mode
+    )
+
+func is_transition_mode_supported(transition_mode: String) -> bool:
+    return transition_mode in [
+        TRANSITION_MODE_FULL_REWRITE,
+        TRANSITION_MODE_LIGHT_REBASE,
+        TRANSITION_MODE_SILENT,
+    ]
+
+func prepare_chunk_transition(
+    old_resolved_chunk: ResolvedWorld,
+    new_resolved_chunk: ResolvedWorld
+) -> Dictionary:
+    if prototype_catalog == null:
+        push_error("SceneRuntime.prepare_chunk_transition requires prototype_catalog")
+        return {}
+    var candidate := build_candidate(new_resolved_chunk, prototype_catalog)
+    if candidate == null:
+        return {}
+    return {
+        "candidate_scene": candidate,
+        "patch": scene_diff.compare(old_resolved_chunk, new_resolved_chunk),
+    }
+
+func apply_prepared_chunk_transition(
+    chunk_root: Node3D,
+    new_resolved_chunk: ResolvedWorld,
+    prepared: Dictionary,
+    transition_mode: String = TRANSITION_MODE_FULL_REWRITE
+):
+    if not is_transition_mode_supported(transition_mode):
+        return null
+    var candidate := prepared.get("candidate_scene") as Node3D
+    var patch_value: Variant = prepared.get("patch")
+    if candidate == null or typeof(patch_value) != TYPE_DICTIONARY:
+        return null
+    var patch: Dictionary = patch_value
+    var active_root := chunk_root.get_node_or_null(CHUNK_CONTENT_NAME) as Node3D
+    if (
+        active_root == null
+        or transition_mode == TRANSITION_MODE_SILENT
+    ):
+        _replace_chunk_content(chunk_root, candidate)
+        return patch
+
+    # LIGHT_REBASE intentionally reuses the existing animation in Step 2. Its
+    # lower-cost visual profile belongs to the later Preview performance work.
+    await scene_transition.apply(active_root, candidate, patch, new_resolved_chunk)
+    return patch
+
+func discard_prepared_chunk_transition(prepared: Dictionary) -> void:
+    var candidate := prepared.get("candidate_scene") as Node3D
+    if candidate != null and is_instance_valid(candidate) and candidate.get_parent() == null:
+        candidate.free()
+
+func remove_chunk(chunk_root: Node3D) -> void:
+    var active_root := chunk_root.get_node_or_null(CHUNK_CONTENT_NAME)
+    if active_root == null:
+        return
+    chunk_root.remove_child(active_root)
+    active_root.queue_free()
+
+func _replace_chunk_content(chunk_root: Node3D, candidate: Node3D) -> void:
+    var active_root := chunk_root.get_node_or_null(CHUNK_CONTENT_NAME)
+    if active_root != null:
+        chunk_root.remove_child(active_root)
+        active_root.queue_free()
+    chunk_root.add_child(candidate)
+    candidate.name = CHUNK_CONTENT_NAME
 
 func commit_candidate(world_root: Node3D, candidate: Node3D) -> void:
     for child in world_root.get_children():

@@ -119,6 +119,10 @@ godot --headless --path . --script tests/test_scene_diff.gd
 godot --headless --path . --script tests/test_coastal_town_houses.gd
 godot --headless --path . --script tests/test_region_claims.gd
 godot --headless --path . --script tests/test_scene_transition.gd
+godot --headless --path . --script tests/test_revision_kernel.gd
+godot --headless --path . --script tests/test_chunk_scene_runtime.gd
+godot --headless --path . --script tests/test_current_chunk_revision_transaction.gd
+godot --headless --path . --script tests/test_step4_provisional_revision.gd
 ```
 
 ## Architecture invariants
