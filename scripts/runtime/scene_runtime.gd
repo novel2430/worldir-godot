@@ -10,6 +10,96 @@ var _terrain_material_cache: ShaderMaterial = null
 var _water_material_cache: ShaderMaterial = null
 var _foam_material_cache: ShaderMaterial = null
 
+func get_or_create_chunk_root(world_root: Node3D, coord: Vector2i) -> Node3D:
+    var chunks_root := world_root.get_node_or_null("Chunks") as Node3D
+    if chunks_root == null:
+        chunks_root = Node3D.new()
+        chunks_root.name = "Chunks"
+        world_root.add_child(chunks_root)
+    var chunk_name := _chunk_node_name(coord)
+    var existing := chunks_root.get_node_or_null(chunk_name) as Node3D
+    if existing != null:
+        return existing
+    var chunk_root := Node3D.new()
+    chunk_root.name = chunk_name
+    chunk_root.set_meta("chunk_coord", coord)
+    chunks_root.add_child(chunk_root)
+    return chunk_root
+
+func mount_chunk(
+    chunk_root: Node3D,
+    resolved: ResolvedChunk,
+    catalog: PrototypeCatalog
+) -> Node3D:
+    if chunk_root == null or resolved == null:
+        return null
+    var generated := build_candidate(resolved, catalog)
+    if generated == null:
+        return null
+    var existing := chunk_root.get_node_or_null("GeneratedWorld") as Node3D
+    if existing != null:
+        chunk_root.remove_child(existing)
+        existing.free()
+    chunk_root.set_meta("chunk_coord", resolved.coord)
+    chunk_root.set_meta("ir_revision", resolved.revision)
+    generated.name = "GeneratedWorld"
+    chunk_root.add_child(generated)
+    return chunk_root
+
+func transition_chunk(
+    chunk_root: Node3D,
+    old_resolved: ResolvedChunk,
+    new_resolved: ResolvedChunk,
+    transition_mode: StringName,
+    catalog: PrototypeCatalog
+) -> Dictionary:
+    if chunk_root == null or new_resolved == null:
+        return {"ok": false, "patch": {}}
+    var candidate := build_candidate(new_resolved, catalog)
+    if candidate == null:
+        return {"ok": false, "patch": {}}
+    var patch := scene_diff.compare(old_resolved, new_resolved)
+    if transition_mode == &"SILENT_REBUILD":
+        _replace_generated_world(chunk_root, candidate)
+    else:
+        await transition_candidate(chunk_root, candidate, old_resolved, new_resolved)
+    chunk_root.set_meta("chunk_coord", new_resolved.coord)
+    chunk_root.set_meta("ir_revision", new_resolved.revision)
+    return {"ok": true, "patch": patch}
+
+func _replace_generated_world(chunk_root: Node3D, candidate: Node3D) -> void:
+    var existing := chunk_root.get_node_or_null("GeneratedWorld") as Node3D
+    if existing != null:
+        chunk_root.remove_child(existing)
+        existing.free()
+    candidate.name = "GeneratedWorld"
+    chunk_root.add_child(candidate)
+
+func remove_chunk(chunk_root: Node3D) -> void:
+    if chunk_root == null:
+        return
+    var parent := chunk_root.get_parent()
+    if parent != null:
+        parent.remove_child(chunk_root)
+    chunk_root.free()
+
+func unmount_chunk(world_root: Node3D, coord: Vector2i) -> void:
+    var chunks_root := world_root.get_node_or_null("Chunks") as Node3D
+    if chunks_root == null:
+        return
+    var chunk_root := chunks_root.get_node_or_null(_chunk_node_name(coord)) as Node3D
+    if chunk_root == null:
+        return
+    remove_chunk(chunk_root)
+
+func get_mounted_chunk(world_root: Node3D, coord: Vector2i) -> Node3D:
+    return world_root.get_node_or_null(
+        "Chunks/%s" % _chunk_node_name(coord)
+    ) as Node3D
+
+func _chunk_node_name(coord: Vector2i) -> String:
+    return "Chunk_%d_%d" % [coord.x, coord.y]
+
 func build_candidate(resolved: ResolvedWorld, catalog: PrototypeCatalog) -> Node3D:
     var root := Node3D.new()
     root.name = "CandidateWorld"

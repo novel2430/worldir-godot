@@ -73,7 +73,7 @@ func _dress_forest(
             continue
 
         var rng := RandomNumberGenerator.new()
-        rng.seed = world.seed ^ int(forest.id.hash()) ^ int(decoration_type.hash()) ^ DRESSING_SEED_SALT
+        rng.seed = world.realization_seed ^ int(forest.id.hash()) ^ int(decoration_type.hash()) ^ DRESSING_SEED_SALT
         var centers := _cluster_centers(
             int(rule["cluster_count"]),
             forest.polygon,

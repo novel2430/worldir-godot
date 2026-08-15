@@ -27,17 +27,28 @@ func lower(
 	catalog: PrototypeCatalog,
 	seed_value: int = -1,
 	runtime_bindings: Array = [],
-	spatial_payloads: Dictionary = {}
+	spatial_payloads: Dictionary = {},
+	world_bounds_override: Rect2 = Rect2(),
+	realization_seed_override: int = -1
 ) -> ResolvedWorld:
 	var out := ResolvedWorld.new()
 	var effective_seed: int = config.seed if seed_value < 0 else seed_value
+	var realization_seed: int = (
+		effective_seed if realization_seed_override < 0 else realization_seed_override
+	)
 	out.seed = effective_seed
-	out.world_bounds = config.world_bounds()
+	out.realization_seed = realization_seed
+	var environment_value: Variant = world_ir.get("environment", {})
+	if environment_value is Dictionary:
+		out.environment = environment_value.duplicate(true)
+	out.world_bounds = (
+		world_bounds_override if world_bounds_override.has_area() else config.world_bounds()
+	)
 	for warning in config.warnings:
 		out.warnings.append(warning)
 	solver.configure(
 		out.world_bounds,
-		effective_seed,
+		realization_seed,
 		config.near_threshold_m,
 		config.far_threshold_m,
 		config.along_threshold_m
@@ -56,7 +67,7 @@ func lower(
 		"ir_objects": ir_objects,
 		"ir_kinds": ir_kinds,
 		"spatial_payloads": spatial_payloads,
-		"seed": effective_seed,
+		"seed": realization_seed,
 	}
 
 	_validate_binding_capability(runtime_bindings, spatial_payloads, out)
@@ -92,7 +103,7 @@ func lower(
 
 	for item in world_ir.get("networks", []):
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
-		var resolved := network_lowerer.lower(item, solver, effective_seed, context, binding)
+		var resolved := network_lowerer.lower(item, solver, realization_seed, context, binding)
 		if resolved == null:
 			out.errors.append(network_lowerer.last_error if not network_lowerer.last_error.is_empty() else "Network lowering failed")
 			return out

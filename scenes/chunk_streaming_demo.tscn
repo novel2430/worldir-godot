@@ -1,0 +1,68 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/chunk/chunk_streaming_demo.gd" id="1_demo"]
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="2_player"]
+[ext_resource type="Script" path="res://scripts/prototype/prototype_catalog.gd" id="3_catalog"]
+[ext_resource type="Script" path="res://scripts/runtime/scene_runtime.gd" id="4_runtime"]
+[ext_resource type="Script" path="res://scripts/chunk/chunk_manager.gd" id="5_manager"]
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMaterial"]
+sky_top_color = Color(0.2, 0.36, 0.52, 1)
+sky_horizon_color = Color(0.72, 0.76, 0.72, 1)
+ground_bottom_color = Color(0.12, 0.14, 0.12, 1)
+ground_horizon_color = Color(0.58, 0.56, 0.47, 1)
+
+[sub_resource type="Sky" id="Sky"]
+sky_material = SubResource("SkyMaterial")
+
+[sub_resource type="Environment" id="Environment"]
+background_mode = 2
+sky = SubResource("Sky")
+ambient_light_source = 3
+ambient_light_energy = 0.86
+fog_enabled = true
+fog_density = 0.0025
+
+[node name="ChunkStreamingDemo" type="Node3D"]
+script = ExtResource("1_demo")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-38, -35, 0)
+light_energy = 0.84
+shadow_enabled = true
+directional_shadow_max_distance = 260.0
+
+[node name="WorldRoot" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 80, 7, 80)
+
+[node name="PrototypeCatalog" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("3_catalog")
+
+[node name="SceneRuntime" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("4_runtime")
+
+[node name="ChunkManager" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("5_manager")
+
+[node name="DebugUI" type="CanvasLayer" parent="."]
+
+[node name="Panel" type="PanelContainer" parent="DebugUI"]
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 570.0
+offset_bottom = 390.0
+
+[node name="ChunkDebugLabel" type="Label" parent="DebugUI/Panel"]
+unique_name_in_owner = true
+text = "Loading Chunk streaming demo..."
+autowrap_mode = 2
