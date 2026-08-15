@@ -1,0 +1,191 @@
+WorldIR Godot V1-A / ArtLab Policy 开发备忘
+日期：2026-08-15（Asia/Shanghai）
+
+一、版本与定位
+
+- 分支：codex/v1-a-chunk-streaming-generation
+- 原始开发基线：1372c875397ff1f829daa50277182caf6f9b05cf
+- 当前本地基线提交：a22d64c（feat: apply ArtLab realization policy to chunk generation）
+- 当前提交为本地提交，尚未推送远端。
+- ArtLab 是参数化生成实验沙盒，不是 V1-A 主项目的一部分。
+- 本轮工作的目标是把 ArtLab 已验证的生成经验沉淀为 V1-A Backend 自有的
+  Realization Policy，帮助现有合法 World IR 更好地生成和描述世界，而不是合并
+  两个项目。
+
+二、不可破坏的边界
+
+1. World IR、Compiler Server、Runtime Facts 和现有四根对象结构不变。
+2. WorldBackend、ChunkGenerator、ChunkManager、SceneRuntime 的公开方法签名不变。
+3. Policy 不写回 World IR，不成为新的外部输入，也不改变 Resolved 输出协议。
+4. 优先级固定为：
+
+   显式 World IR 语义
+     > 已解析的 placement / prototype occupancy 约束
+     > Backend 自有 ArtLab Realization Policy
+
+5. Policy 不得改变显式 Distribution 的数量、排列、placement relation 或稳定实例
+   identity；当前人口参数只作用于 Backend 自有的森林 dressing。
+6. Same Inputs 仍须确定性输出，且不得依赖 Chunk 生成顺序或可变全局状态。
+
+三、已完成工作
+
+[A] Policy 数据与加载
+
+- 增加 data/configs/artlab_realization_policy.json，集中管理 terrain、surface、
+  dressing 参数。
+- 增加 scripts/backend/realization_policy.gd，负责读取、校验、默认值回退和警告。
+- 内置兼容默认值与检入配置一致；配置缺失或字段非法时保留既有可运行行为。
+- 静态验证器已检查 Policy JSON、WorldIR 引用、res:// 路径和 TSCN 资源引用。
+
+[B] Terrain 与 Surface
+
+- 地形宏观/细节频率、幅度和高度限制改为 Policy 驱动。
+- 森林起伏、聚落平整、Region 内外过渡宽度改为 Policy 驱动。
+- 海岸沙滩、湿沙、水下坡度和陆地衔接参数改为 Policy 驱动。
+- 道路肩部、道路地形混合、建筑泥土地表和建筑平整影响改为 Policy 驱动。
+- meadow、forest、soil、sand、wet sand、road dirt 调色板与材质参数已接入。
+- Policy 依据现有合法 Region 类型在空间上解析，不把整个 160m Chunk 强行归为
+  单一 ArtLab profile。
+
+[C] Population 与 Forest Dressing
+
+- 森林 dressing 使用以下参数化语义：
+
+  candidate area
+    x acceptance probability
+    x edge profile
+    x building clearing influence
+    x road/path corridor influence
+    x shared occupancy
+    -> realized decoration instances
+
+- dead_tree、rock、bush、grass 分层配置了候选面积、接受概率、cap、cluster、
+  edge mode 和道路净距。
+- 建筑 clearing 半径会参考实际 TSCN 可视 footprint。
+- 道路和路径保留硬碰撞/净距核心，同时增加平滑外部走廊，避免植被出现笔直截断。
+- 显式 Entity 和 Distribution 仍先于 Backend dressing 占用空间。
+
+[D] Runtime 表现
+
+- SceneRuntime 已消费新 terrain/surface/dressing 结果进行场景实例化和显示。
+- 没有增加新的外部运行时协议字段或调用入口。
+
+[E] Chunk-local 依赖闭包修复
+
+- ChunkGenerator 在进入 Backend 前对被方向/ownership 规则裁掉的对象执行递归依赖
+  闭包裁剪。
+- 已覆盖 placement relations、Network topology 和 Distribution density selector。
+- 例：西北 Chunk 裁掉 east-anchored coast 后，同时裁掉依赖 coast 的 town、依赖
+  town 的 road 和 houses，独立 forest/forest_trees 继续正常生成。
+- 原始 IR 不被修改；原始 IR 中未知或非法 target 仍走既有错误路径。
+- 没有放宽 Region arbitration，没有修改 PlacementSolver 的缺失目标行为，也没有
+  吞掉 Backend/Contract 错误。
+
+[F] 文档、测试与证据
+
+- 增加 docs/artlab_realization_policy.md，并更新开发规范、Backend contract 说明和
+  README。
+- 增加 Policy 单元/边界测试、forest dressing 回归和 coastal town 依赖闭包回归。
+- Windows 真实引擎：Godot 4.7.1 stable，RTX 5070，OpenGL Compatibility。
+- 完整测试结果：21/21 通过。
+- Chunk 依赖闭包增强用例单独复测通过。
+- 真实 3x3 活动窗口生成成功：9 个 active chunks。
+- 当次统计：1 个 entity、802 个显式 distribution instances、669 个 decorations；
+  对照基线 decorations 为 660。
+- 已保存六个 ArtLab Policy 机位和六个 1372 基线同机位截图：
+  screenshots/artlab_policy/
+  screenshots/baseline_1372/
+- Windows C:\worldir-godot 原项目未被修改；测试使用隔离临时副本并已清理。
+
+四、当前结论
+
+- ArtLab 经验已经以 Backend-owned、可配置、确定性的方式进入 V1-A。
+- 当前接入改善的是“同一合法 World IR 如何被实现”，不是扩展“World IR 能表达什么”。
+- 已落地部分不要求修改任何对外输入、输出、接口或协议。
+- 已修复旧策略在 Chunk-local interpretation 中制造悬空语义依赖的问题；ArtLab
+  Policy 的 3x3 真实生成路径也通过了该回归。
+- 当前画面差异是增量优化，不应把现有截图解读为最终美术质量基准。
+
+五、后续 TODO：不修改对外契约即可继续
+
+P0 — 回归与可维护性
+
+[ ] 为依赖闭包增加更小的专用测试文件，覆盖多级链、多个 target、topology via、
+    density gradient selector 和互相引用，避免只依赖 coastal-town 综合用例。
+[ ] 增加“生成顺序不同但 Chunk 结果一致”的 Policy 确定性回归。
+[ ] 增加 Policy 缺失、JSON 损坏、字段类型错误、局部字段缺失的 fallback 测试。
+[ ] 明确 Policy format 版本升级规则和未知版本处理策略。
+[ ] 将真实 Godot 全套测试命令固化为一个可重复执行的本地脚本，并输出汇总报告。
+
+P1 — 视觉标定
+
+[ ] 用更多合法 World IR 场景标定 forest、settlement、coast、road 的组合表现，不只
+    使用当前 coastal-town 样例。
+[ ] 调整森林边缘 profile，使近边界层次更明显，同时避免草/灌木在道路旁形成硬线。
+[ ] 继续标定建筑 clearing：分别覆盖小屋、长屋和大 footprint 建筑。
+[ ] 标定 coast 的沙滩宽度、湿沙过渡和水下坡度，覆盖不同 coast mask 形状。
+[ ] 为每次参数调整保留同 seed、同相机、同 IR 的 before/after 截图和实例统计。
+[ ] 建立轻量视觉验收清单：Chunk seam、道路净距、建筑入口、海岸水线、重复图案、
+    漂浮/穿插对象。
+
+P1 — 性能与规模
+
+[ ] 在 Windows 真机记录初始 3x3、单 Chunk revision 和 streaming 移动时的 CPU
+    时间、帧耗时、实例数量与峰值内存。
+[ ] 检查高密度 dressing 下 shared occupancy 查询成本，并在不改变 identity 的前提
+    下优化热点。
+[ ] 验证更远 streaming 路径中的生成顺序独立性、历史 Chunk preserve 和 seam 表现。
+
+P2 — Policy 工具化（仍保持内部）
+
+[ ] 增加只读 Policy dump/诊断输出，说明每个 Chunk/位置最终命中的 Region role、
+    layer 和 influence，便于调参排查。
+[ ] 增加配置 schema/字段说明，注明单位、合法范围、默认值和影响范围。
+[ ] 评估开发环境中的 Policy 热重载；若实现，必须保证正式生成仍绑定明确的 Policy
+    版本，避免 Same Inputs 随磁盘状态漂移。
+[ ] 将 ArtLab 的实验记录整理为参数变更日志，区分“观察”“假设”“已验证规律”。
+
+六、后续候选：需要先批准契约/架构变化，不得直接实现
+
+[ ] 在 World IR 中表达 snow_forest、research_base 或其他新的 profile/biome ID。
+[ ] 增加 biome、weather、lighting、atmosphere、precipitation 等 Compiler 字段。
+[ ] 扩展 ResolvedTerrain 的 surface channels。
+[ ] 增加跨 Chunk persistent-structure influence payload，使未拥有结构的邻接 Chunk
+    也能稳定收到其地形/植被影响。
+[ ] 增加 Resolved environment 输出，并由世界级 lighting/environment coordinator
+    消费。
+[ ] 将 ArtLab 的固定五 Chunk 布局、mutation key、HUD 或证据采集生命周期接入
+    主项目运行时。
+
+上述每一项都必须先分别说明：为何现有契约无法表达、拟修改的输入/输出字段、版本
+兼容策略、确定性影响、旧客户端行为、迁移与回滚方案。未经明确批准不应实施。
+
+七、建议的下一阶段验收门槛
+
+1. 现有全部测试继续通过，新增 Policy/闭包测试通过。
+2. 同 seed + 同 IR + 同 Policy version 的结果可重复，且与生成顺序无关。
+3. 3x3 初始化、streaming 移动和单 Chunk revision 均无新增错误。
+4. 不新增 World IR 根字段，不改变任何现有公开方法签名或序列化协议。
+5. 视觉对照至少覆盖 forest、coast、settlement、road、building clearing 和 Chunk seam。
+6. 性能数据达到项目既有 streaming 预算；若无正式预算，先记录基线而不擅自设定。
+7. 所有需要契约变化的候选仍保持未实现，直到获得单独确认。
+
+八、常用入口
+
+- Policy 配置：data/configs/artlab_realization_policy.json
+- Policy 说明：docs/artlab_realization_policy.md
+- Policy 加载：scripts/backend/realization_policy.gd
+- Terrain 实现：scripts/backend/terrain_resolver.gd
+- Dressing 实现：scripts/backend/forest_dresser.gd
+- Chunk 依赖闭包：scripts/chunk/chunk_generator.gd
+- Runtime 呈现：scripts/runtime/scene_runtime.gd
+- Policy 测试：tests/test_realization_policy.gd
+- Coastal-town 回归：tests/test_coastal_town_houses.gd
+- 截图工具：tools/capture_artlab_policy.gd
+- 静态验证：tools/validate_project.py
+
+九、恢复点
+
+- 如需回看接入前状态：1372c875397ff1f829daa50277182caf6f9b05cf
+- 如需回看本轮接入后的本地基线：a22d64c
+- 不建议用破坏性 reset；优先新建分支、使用 git show/diff 或 revert。
