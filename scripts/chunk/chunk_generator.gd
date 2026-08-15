@@ -90,17 +90,17 @@ func _interpret_world_ir(
 	runtime_bindings: Array
 ) -> Dictionary:
 	var result := world_ir.duplicate(true)
-	var removed_region_ids := {}
+	var removed_object_ids := {}
 	var regions: Array = []
 	for region: Dictionary in result.get("regions", []):
 		var region_id := String(region.get("id", ""))
 		var semantic_type := String(region.get("type", ""))
 		if semantic_type in ["graveyard"]:
 			if coord != _object_owner_coord(region_id, coord, overrides, runtime_bindings):
-				removed_region_ids[region_id] = true
+				removed_object_ids[region_id] = true
 				continue
 		elif not _globalize_region_placement(region, coord):
-			removed_region_ids[region_id] = true
+			removed_object_ids[region_id] = true
 			continue
 		regions.append(region)
 	result["regions"] = regions
@@ -110,22 +110,75 @@ func _interpret_world_ir(
 		var entity_id := String(entity.get("id", ""))
 		if coord == _object_owner_coord(entity_id, coord, overrides, runtime_bindings):
 			entities.append(entity)
+		elif not entity_id.is_empty():
+			removed_object_ids[entity_id] = true
 	result["entities"] = entities
 
-	var distributions: Array = []
-	for distribution: Dictionary in result.get("distributions", []):
-		var depends_on_removed_region := false
-		for relation: Dictionary in distribution.get("placement", {}).get("relations", []):
-			if (
-				String(relation.get("type", "")) == "inside"
-				and removed_region_ids.has(String(relation.get("target", "")))
-			):
-				depends_on_removed_region = true
-				break
-		if not depends_on_removed_region:
-			distributions.append(distribution)
-	result["distributions"] = distributions
+	_prune_removed_dependency_closure(result, removed_object_ids)
 	return result
+
+func _prune_removed_dependency_closure(
+	world_ir: Dictionary,
+	removed_object_ids: Dictionary
+) -> void:
+	# Chunk-local directional/ownership pruning must preserve a closed semantic
+	# graph. Otherwise the Backend sees a valid global relation whose target was
+	# removed only for this Chunk and may fall back to an unrelated local center.
+	var collection_names: Array[String] = [
+		"regions",
+		"networks",
+		"entities",
+		"distributions",
+	]
+	var changed := true
+	while changed:
+		changed = false
+		for collection_name: String in collection_names:
+			for item: Dictionary in world_ir.get(collection_name, []):
+				var object_id := String(item.get("id", ""))
+				if object_id.is_empty() or removed_object_ids.has(object_id):
+					continue
+				if _depends_on_removed_object(item, removed_object_ids):
+					removed_object_ids[object_id] = true
+					changed = true
+
+	for collection_name: String in collection_names:
+		var retained: Array = []
+		for item: Dictionary in world_ir.get(collection_name, []):
+			if not removed_object_ids.has(String(item.get("id", ""))):
+				retained.append(item)
+		world_ir[collection_name] = retained
+
+func _depends_on_removed_object(
+	item: Dictionary,
+	removed_object_ids: Dictionary
+) -> bool:
+	var placement: Dictionary = item.get("placement", {})
+	for relation: Dictionary in placement.get("relations", []):
+		if removed_object_ids.has(String(relation.get("target", ""))):
+			return true
+
+	# Network topology tokens may also name semantic objects rather than world
+	# anchors. Only a token matching an object removed above is a dependency.
+	var topology: Dictionary = item.get("topology", {})
+	for endpoint_name: String in ["from", "to"]:
+		if removed_object_ids.has(String(topology.get(endpoint_name, ""))):
+			return true
+	for via_token: Variant in topology.get("via", []):
+		if removed_object_ids.has(String(via_token)):
+			return true
+
+	# Gradient selectors carry the same hard semantic reference as Placement
+	# relations. Keeping a selector whose target was pruned would reintroduce the
+	# same center fallback through DistributionLowerer.
+	var population: Dictionary = item.get("population", {})
+	var density_profile: Dictionary = population.get("density_profile", {})
+	for endpoint_name: String in ["from", "to"]:
+		var endpoint: Dictionary = density_profile.get(endpoint_name, {})
+		var selector: Dictionary = endpoint.get("selector", {})
+		if removed_object_ids.has(String(selector.get("target", ""))):
+			return true
+	return false
 
 func _object_owner_coord(
 	object_id: String,
@@ -404,9 +457,16 @@ func _rebuild_dressing(chunk: ResolvedChunk, backend: WorldBackend) -> void:
 		backend.config.along_threshold_m
 	)
 	for entity: ResolvedEntity in chunk.entities:
+		var meta := prototype_catalog.get_metadata(entity.prototype_id)
+		var scale := entity.transform.basis.get_scale()
+		var visual_footprint: Vector2 = meta.get("visual_footprint", Vector2.ZERO)
+		var entity_radius := maxf(
+			maxf(visual_footprint.x * scale.x, visual_footprint.y * scale.z) * 0.5,
+			float(meta.get("placement_radius", 1.0))
+		)
 		dressing_solver.register_occupancy(
 			Vector2(entity.transform.origin.x, entity.transform.origin.z),
-			1.0,
+			entity_radius,
 			entity.id
 		)
 	for distribution: ResolvedDistribution in chunk.distributions:

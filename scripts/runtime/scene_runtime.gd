@@ -4,6 +4,7 @@ extends Node
 const SceneTransitionScript = preload("res://scripts/runtime/scene_transition.gd")
 const RevisionTransitionPolicyScript = preload("res://scripts/revision/revision_transition_policy.gd")
 const RevisionBoundaryBlendScript = preload("res://scripts/runtime/revision_boundary_blend.gd")
+const RealizationPolicyScript = preload("res://scripts/backend/realization_policy.gd")
 
 const TRANSITION_MODE_FULL_REWRITE := "FULL_REWRITE"
 const TRANSITION_MODE_LIGHT_REBASE := "LIGHT_REBASE"
@@ -30,6 +31,7 @@ var last_boundary_plan: Dictionary = {}
 var candidate_scene_count := 0
 var peak_candidate_scene_count := 0
 var silent_mount_count := 0
+var realization_policy: RefCounted = RealizationPolicyScript.new()
 var _terrain_material_cache: ShaderMaterial = null
 var _water_material_cache: ShaderMaterial = null
 var _foam_material_cache: ShaderMaterial = null
@@ -466,6 +468,30 @@ render_mode cull_back, depth_draw_opaque;
 
 varying vec3 world_position;
 
+uniform vec3 meadow_low;
+uniform vec3 meadow_high;
+uniform vec3 forest_green_low;
+uniform vec3 forest_green_high;
+uniform vec3 forest_soil_color;
+uniform vec3 packed_dirt_low;
+uniform vec3 packed_dirt_high;
+uniform vec3 sand_low;
+uniform vec3 sand_high;
+uniform vec3 wet_sand_low;
+uniform vec3 wet_sand_high;
+uniform vec3 road_dirt_low;
+uniform vec3 road_dirt_high;
+uniform float forest_soil_patch_start;
+uniform float forest_soil_patch_end;
+uniform float forest_soil_patch_strength;
+uniform float settlement_blend_strength;
+uniform float wet_sand_blend_strength;
+uniform float road_blend_strength;
+uniform float surface_variation_min;
+uniform float surface_variation_max;
+uniform float terrain_roughness;
+uniform float terrain_specular;
+
 float hash21(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + 45.32);
@@ -488,32 +514,90 @@ void fragment() {
     vec4 influence = COLOR;
     float broad_noise = value_noise(world_position.xz * 0.035);
     float detail_noise = value_noise(world_position.xz * 0.11 + vec2(17.0, 41.0));
-    vec3 meadow = mix(vec3(0.19, 0.245, 0.125), vec3(0.255, 0.305, 0.155), broad_noise);
-    vec3 forest_green = mix(vec3(0.105, 0.17, 0.07), vec3(0.17, 0.235, 0.105), broad_noise);
-    vec3 forest_soil = vec3(0.255, 0.18, 0.095);
-    float soil_patch = smoothstep(0.61, 0.79, detail_noise) * influence.r * 0.58;
-    vec3 forest_floor = mix(forest_green, forest_soil, soil_patch);
-    vec3 packed_dirt = mix(vec3(0.31, 0.235, 0.135), vec3(0.38, 0.285, 0.16), broad_noise);
-    vec3 sand = mix(vec3(0.43, 0.405, 0.265), vec3(0.52, 0.485, 0.315), broad_noise);
-    vec3 wet_sand = mix(vec3(0.245, 0.255, 0.19), vec3(0.31, 0.295, 0.205), broad_noise);
-    vec3 road_dirt = mix(vec3(0.285, 0.205, 0.115), vec3(0.355, 0.265, 0.145), detail_noise);
+    vec3 meadow = mix(meadow_low, meadow_high, broad_noise);
+    vec3 forest_green = mix(forest_green_low, forest_green_high, broad_noise);
+    float soil_patch = smoothstep(
+        forest_soil_patch_start,
+        forest_soil_patch_end,
+        detail_noise
+    ) * influence.r * forest_soil_patch_strength;
+    vec3 forest_floor = mix(forest_green, forest_soil_color, soil_patch);
+    vec3 packed_dirt = mix(packed_dirt_low, packed_dirt_high, broad_noise);
+    vec3 sand = mix(sand_low, sand_high, broad_noise);
+    vec3 wet_sand = mix(wet_sand_low, wet_sand_high, broad_noise);
+    vec3 road_dirt = mix(road_dirt_low, road_dirt_high, detail_noise);
 
     vec3 surface = meadow;
     surface = mix(surface, forest_floor, influence.r);
-    surface = mix(surface, packed_dirt, influence.g * 0.82);
+    surface = mix(surface, packed_dirt, influence.g * settlement_blend_strength);
     surface = mix(surface, sand, influence.b);
-    surface = mix(surface, wet_sand, UV2.x * influence.b * 0.88);
-    surface = mix(surface, road_dirt, influence.a * 0.86);
-    surface *= mix(0.94, 1.06, detail_noise);
+    surface = mix(surface, wet_sand, UV2.x * influence.b * wet_sand_blend_strength);
+    surface = mix(surface, road_dirt, influence.a * road_blend_strength);
+    surface *= mix(surface_variation_min, surface_variation_max, detail_noise);
     ALBEDO = surface;
-    ROUGHNESS = 1.0;
-    SPECULAR = 0.08;
+    ROUGHNESS = terrain_roughness;
+    SPECULAR = terrain_specular;
 }
 """
     var material := ShaderMaterial.new()
     material.shader = shader
+    _configure_terrain_material(material)
     _terrain_material_cache = material
     return _terrain_material_cache
+
+func _configure_terrain_material(material: ShaderMaterial) -> void:
+    var colors := {
+        "meadow_low": Color(0.19, 0.245, 0.125),
+        "meadow_high": Color(0.255, 0.305, 0.155),
+        "forest_green_low": Color(0.105, 0.17, 0.07),
+        "forest_green_high": Color(0.17, 0.235, 0.105),
+        "forest_soil_color": Color(0.255, 0.18, 0.095),
+        "packed_dirt_low": Color(0.31, 0.235, 0.135),
+        "packed_dirt_high": Color(0.38, 0.285, 0.16),
+        "sand_low": Color(0.43, 0.405, 0.265),
+        "sand_high": Color(0.52, 0.485, 0.315),
+        "wet_sand_low": Color(0.245, 0.255, 0.19),
+        "wet_sand_high": Color(0.31, 0.295, 0.205),
+        "road_dirt_low": Color(0.285, 0.205, 0.115),
+        "road_dirt_high": Color(0.355, 0.265, 0.145),
+    }
+    for uniform_name in colors:
+        var policy_name := String(uniform_name)
+        if policy_name == "forest_soil_color":
+            policy_name = "forest_soil"
+        var fallback: Color = colors[uniform_name]
+        var value: Color = realization_policy.color(
+            "surface.palette.%s" % policy_name,
+            fallback
+        )
+        material.set_shader_parameter(
+            uniform_name,
+            Vector3(value.r, value.g, value.b)
+        )
+    var numbers := {
+        "forest_soil_patch_start": 0.61,
+        "forest_soil_patch_end": 0.79,
+        "forest_soil_patch_strength": 0.58,
+        "settlement_blend_strength": 0.82,
+        "wet_sand_blend_strength": 0.88,
+        "road_blend_strength": 0.86,
+        "surface_variation_min": 0.94,
+        "surface_variation_max": 1.06,
+        "terrain_roughness": 1.0,
+        "terrain_specular": 0.08,
+    }
+    var policy_names := {
+        "surface_variation_min": "variation_min",
+        "surface_variation_max": "variation_max",
+        "terrain_roughness": "roughness",
+        "terrain_specular": "specular",
+    }
+    for uniform_name in numbers:
+        var policy_name := String(policy_names.get(uniform_name, uniform_name))
+        material.set_shader_parameter(
+            uniform_name,
+            realization_policy.number("surface.%s" % policy_name, float(numbers[uniform_name]))
+        )
 
 func _build_water(water: Resource) -> Node3D:
     var root := Node3D.new()

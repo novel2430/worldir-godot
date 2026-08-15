@@ -105,6 +105,19 @@ transaction-local hints
 
 Overrides 为空时维持原确定性契约；非空时 overrides 也是 Same Inputs 的组成部分。
 
+### 5.1 Chunk-local 语义闭包
+
+`ChunkGenerator` 可以按方向 anchor 或离散对象 ownership 从某个 Chunk 的内部
+IR 副本中裁掉不属于该 Chunk 的对象，但裁剪结果必须保持语义依赖闭包：如果
+一个对象通过 placement relation、Network topology 或 Distribution density
+selector 引用了已被 Chunk-local 规则裁掉的对象，则该依赖对象也必须递归裁掉，
+直到不再出现新的依赖项。
+
+这一步发生在进入 `WorldBackend` 之前，不得修改原始 World IR，也不得通过放宽
+Region arbitration 或吞掉 Backend/Contract 错误来替代。只有明确因 Chunk-local
+方向或 ownership 被裁掉的 target 才进入闭包；原始 IR 中未知或非法的 target
+仍必须由既有验证路径报告失败。
+
 ## 6. Identity 与确定性
 
 - Revision 永远不是对象 identity 的组成部分。
@@ -123,3 +136,10 @@ Overrides 为空时维持原确定性契约；非空时 overrides 也是 Same In
 ## 8. 必须覆盖的集成验收
 
 A 分支至少覆盖：transaction pin、candidate 不污染记录、override scope、稳定实例 identity、revision coalescing、preview failure isolation、no-stale entry、historical preservation 和 chunk-scoped scene mutation。跨 B 的 prompt capture/transition 测试在合并集成时执行。
+
+## 9. ArtLab Realization Policy
+
+ArtLab 的参数实验只允许进入 Backend-owned realization policy。它不得新增
+World IR 字段、改变 Compiler/Runtime Context 契约、覆盖显式 Distribution
+语义，或绕过本文件定义的 Revision、candidate、pin、stale 与 Chunk-scoped
+事务。具体策略与未迁移边界见 `docs/artlab_realization_policy.md`。

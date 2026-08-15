@@ -67,6 +67,8 @@ Implemented:
 - A single Region with no anchor or relations falls back to the full playable-world domain; multi-Region worlds keep normal constrained lowering.
 - Procedural road/path lowering to deterministic polyline/ribbon geometry.
 - Deterministic low-frequency macro terrain with stronger rolling Forest relief, calmer settlements, graded roads/building pads, and shaped coast profiles.
+- Backend-owned ArtLab realization policy for parameterized terrain/surface values and candidate-based forest dressing, without extending World IR or Compiler contracts.
+- Smooth, prototype-footprint-aware building clearing and road/path population corridors for Backend-owned dressing.
 - One stylized world-surface shader blending meadow, forest floor, packed dirt, sand, and road dirt without photographic PBR textures.
 - Boundary-touching Coast Regions resolve into deterministic shoreline geometry, submerged terrain, wet sand, foam, and a lightweight stylized ocean surface with animated wave normals and color bands.
 - Prototype-aware Entity placement.
@@ -118,6 +120,7 @@ godot --headless --path . --script tests/test_main_scene.gd
 godot --headless --path . --script tests/test_coast_water.gd
 godot --headless --path . --script tests/test_distribution_arrangement.gd
 godot --headless --path . --script tests/test_backend_config.gd
+godot --headless --path . --script tests/test_realization_policy.gd
 godot --headless --path . --script tests/test_scene_diff.gd
 godot --headless --path . --script tests/test_coastal_town_houses.gd
 godot --headless --path . --script tests/test_region_claims.gd

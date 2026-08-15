@@ -44,6 +44,13 @@ Prototype radius + clearance participates in occupancy checks. Region and road s
 
 `data/configs/backend.json` is the live backend realization policy source for world size/default seed, relation distance thresholds, bounded Region claim budgets, unspecified population budget, and area-density spacing/packing/cap parameters. Built-in constants are validation fallbacks, not a second active configuration path.
 
+`data/configs/artlab_realization_policy.json` is a second, strictly
+Backend-owned visual realization source. It parameterizes the existing terrain,
+surface, semantic Region blend, and automatic forest-dressing implementation.
+It is not World IR, is never sent through the Compiler contract, and cannot
+override explicit Distribution amount, arrangement, placement, or identity.
+See `docs/artlab_realization_policy.md`.
+
 When the world contains exactly one Region and that Region has neither an anchor nor placement relations, V0 resolves its polygon to the playable world bounds. This is a backend-only spatial fallback: it does not mutate World IR, and it is not applied to unconstrained Regions in multi-Region worlds.
 
 Region relation dependencies are calculated before their dependents when the dependency graph is acyclic, while `ResolvedWorld.regions` retains World IR order. Provisional geometry establishes a deterministic seed for each Region; `RegionClaimResolver` then expands a bounded organic claim using the configured semantic area budget. Same-layer overlap is resolved by an order-independent power score (`budget - distance²`), so Regions compete only where their finite claims meet and unclaimed base terrain may remain between them.

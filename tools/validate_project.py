@@ -8,10 +8,13 @@ required = [
     "scripts/backend/world_backend.gd", "scripts/runtime/scene_runtime.gd",
     "scripts/runtime/scene_transition.gd",
     "scripts/backend/backend_config.gd", "data/configs/backend.json",
+    "scripts/backend/realization_policy.gd",
+    "data/configs/artlab_realization_policy.json",
     "scripts/backend/region_claim_resolver.gd",
     "scripts/backend/terrain_resolver.gd", "scripts/resolved/resolved_terrain.gd",
     "scripts/backend/coast_resolver.gd", "scripts/resolved/resolved_water.gd",
     "scripts/backend/forest_dresser.gd", "scripts/resolved/resolved_decoration.gd",
+    "docs/artlab_realization_policy.md",
     "assets/prototypes/nature/tree_01.tscn", "assets/prototypes/nature/rock_01.tscn",
     "assets/prototypes/nature/bush_01.tscn", "assets/prototypes/nature/grass_01.tscn",
     "assets/prototypes/nature/dead_tree_01.tscn", "data/fixtures/coastal_town_initial.json",
@@ -20,6 +23,7 @@ required = [
     "tests/test_coast_water.gd",
     "tests/test_distribution_arrangement.gd",
     "tests/test_backend_config.gd",
+    "tests/test_realization_policy.gd",
     "tests/test_scene_diff.gd",
     "tests/test_coastal_town_houses.gd",
     "tests/test_region_claims.gd",
@@ -29,6 +33,26 @@ missing = [p for p in required if not (root / p).exists()]
 if missing:
     print("Missing:", *missing, sep="\n - ")
     sys.exit(1)
+
+for p in (root / "data/configs").glob("*.json"):
+    data = json.loads(p.read_text())
+    assert isinstance(data, dict), p
+
+policy_path = root / "data/configs/artlab_realization_policy.json"
+policy = json.loads(policy_path.read_text())
+assert policy.get("format") == "worldir-godot-artlab-realization-policy-v1"
+assert policy.get("source", {}).get("scope") == "backend_owned_realization_only"
+assert policy.get("source", {}).get("world_ir_contract_unchanged") is True
+assert "res://" not in policy_path.read_text(), "Realization policy must not contain engine asset paths"
+legal_region_types = {"town", "village", "forest", "coast", "graveyard", "district", "field", "swamp"}
+for role_types in policy["terrain"]["region_roles"].values():
+    assert set(role_types) <= legal_region_types, (policy_path, role_types)
+assert set(policy["dressing"]["region_types"]) <= legal_region_types
+assert set(policy["dressing"]["layers"]) == {"dead_tree", "rock", "bush", "grass"}
+for layer_name, rule in policy["dressing"]["layers"].items():
+    assert rule["target_area_per_candidate_m2"] > 0.0, (policy_path, layer_name)
+    assert 0.0 <= rule["acceptance_probability"] <= 1.0, (policy_path, layer_name)
+    assert rule["cap"] > 0, (policy_path, layer_name)
 
 # JSON and minimal CompileResult/WorldIR shape checks.
 for p in (root / "data/fixtures").glob("*.json"):

@@ -64,11 +64,15 @@ func _test_demo_composition(world: ResolvedWorld, catalog: PrototypeCatalog) -> 
         return
 
     var area := _polygon_area(forest.polygon)
+    var dresser := ForestDresser.new()
     var counts := {}
     var edge_means := {}
     for decoration: ResolvedDecoration in world.decorations:
-        var rule: Dictionary = ForestDresser.RULES[decoration.decoration_type]
-        var expected_count := mini(int(rule["cap"]), int(floor(area / float(rule["area_per_instance"]))))
+        var rule: Dictionary = dresser.realization_policy.dressing_rule(
+            decoration.decoration_type,
+            ForestDresser.RULES[decoration.decoration_type]
+        )
+        var expected_count := dresser.target_count_for_area(area, rule)
         _expect(decoration.instances.size() == expected_count, "Uncongested demo dressing should meet its area budget")
         counts[decoration.decoration_type] = decoration.instances.size()
         var edge_total := 0.0
@@ -80,7 +84,10 @@ func _test_demo_composition(world: ResolvedWorld, catalog: PrototypeCatalog) -> 
             _expect(Geometry2D.is_point_in_polygon(point, forest.polygon), "Dressing center must stay in the resolved forest polygon")
             _expect(
                 point.distance_to(PlacementSolver.new().nearest_point_on_network(point, road))
-                >= road.width * 0.5 + radius + float(rule["road_clearance"]) - 0.001,
+                >= road.width * 0.5 + radius + float(rule.get(
+                    "road_clearance_m",
+                    rule.get("road_clearance", 0.0)
+                )) - 0.001,
                 "Dressing must respect procedural road width and clearance"
             )
             used_prototypes[String(item["prototype_id"])] = true
@@ -166,9 +173,13 @@ func _test_semantic_occupancy_and_road_clearance(catalog: PrototypeCatalog) -> v
     if not world.errors.is_empty():
         return
     var semantic_occupancy := _semantic_occupancy(world, catalog)
+    var dresser := ForestDresser.new()
     var decoration_occupancy: Array = []
     for decoration: ResolvedDecoration in world.decorations:
-        var rule: Dictionary = ForestDresser.RULES[decoration.decoration_type]
+        var rule: Dictionary = dresser.realization_policy.dressing_rule(
+            decoration.decoration_type,
+            ForestDresser.RULES[decoration.decoration_type]
+        )
         for item in decoration.instances:
             var transform: Transform3D = item["transform"]
             var point := Vector2(transform.origin.x, transform.origin.z)
@@ -179,7 +190,14 @@ func _test_semantic_occupancy_and_road_clearance(catalog: PrototypeCatalog) -> v
                 _expect(point.distance_to(occupied["position"]) + 0.001 >= radius + float(occupied["radius"]), "Dressing layers must share one occupancy system")
             for network: ResolvedNetwork in world.networks:
                 var nearest := PlacementSolver.new().nearest_point_on_network(point, network)
-                _expect(point.distance_to(nearest) + 0.001 >= network.width * 0.5 + radius + float(rule["road_clearance"]), "Dressing must not intrude into a road")
+                _expect(
+                    point.distance_to(nearest) + 0.001
+                    >= network.width * 0.5 + radius + float(rule.get(
+                        "road_clearance_m",
+                        rule.get("road_clearance", 0.0)
+                    )),
+                    "Dressing must not intrude into a road"
+                )
             decoration_occupancy.append({"position": point, "radius": radius})
 
 func _test_no_forest(catalog: PrototypeCatalog) -> void:

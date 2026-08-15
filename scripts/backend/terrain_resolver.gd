@@ -2,6 +2,7 @@ class_name TerrainResolver
 extends RefCounted
 
 const ResolvedTerrainResource = preload("res://scripts/resolved/resolved_terrain.gd")
+const RealizationPolicyScript = preload("res://scripts/backend/realization_policy.gd")
 
 const GRID_SIZE := 129
 const ROAD_SURFACE_OFFSET := 0.025
@@ -19,7 +20,14 @@ const BASE_HEIGHT_LIMIT := 2.8
 const FOREST_HEIGHT_LIMIT := 3.55
 const FOREST_RELIEF_STRENGTH := 0.78
 
+var realization_policy: RefCounted = RealizationPolicyScript.new()
+var _policy_number_cache: Dictionary = {}
+var _region_role_cache: Dictionary = {}
+
 func resolve(world: ResolvedWorld, catalog: PrototypeCatalog) -> Resource:
+    for warning in realization_policy.warnings:
+        if not (warning in world.warnings):
+            world.warnings.append(warning)
     var terrain: Resource = ResolvedTerrainResource.new()
     terrain.world_bounds = world.world_bounds
     terrain.grid_size = GRID_SIZE
@@ -68,37 +76,69 @@ func _surface_masks(point: Vector2, world: ResolvedWorld, buildings: Array) -> C
     var coast := 0.0
     for region: ResolvedRegion in world.regions:
         var influence := _region_influence(point, region.polygon)
-        match region.semantic_type:
-            "forest", "swamp": forest = maxf(forest, influence)
-            "town", "village", "district": settlement = maxf(settlement, influence)
-            "coast": coast = maxf(coast, influence)
+        if _region_has_role(region.semantic_type, "forest_surface", ["forest", "swamp"]):
+            forest = maxf(forest, influence)
+        elif _region_has_role(
+            region.semantic_type,
+            "settlement_surface",
+            ["town", "village", "district"]
+        ):
+            settlement = maxf(settlement, influence)
+        elif _region_has_role(region.semantic_type, "coast_surface", ["coast"]):
+            coast = maxf(coast, influence)
 
     for water in world.waters:
         var shore_distance: float = water.signed_distance_to_shore(point)
-        var beach_influence: float = smoothstep(-18.0, -5.0, shore_distance) * water.cross_span_influence(point)
+        var beach_influence: float = smoothstep(
+            _policy_number("terrain.influences.coast_beach_blend_start_m", -18.0),
+            _policy_number("terrain.influences.coast_beach_blend_end_m", -5.0),
+            shore_distance
+        ) * water.cross_span_influence(point)
         coast = maxf(coast, beach_influence)
 
     var local_dirt := _road_influence(point, world.networks)
     for building in buildings:
         var center: Vector2 = building["center"]
         var radius := float(building["radius"])
-        local_dirt = maxf(local_dirt, 1.0 - smoothstep(radius, radius + BUILDING_DIRT_FADE_M, point.distance_to(center)))
+        var dirt_fade := _policy_number(
+            "terrain.influences.building_dirt_fade_m",
+            BUILDING_DIRT_FADE_M
+        )
+        local_dirt = maxf(local_dirt, 1.0 - smoothstep(radius, radius + dirt_fade, point.distance_to(center)))
         var road_point: Vector2 = building.get("road_point", Vector2.INF)
         if road_point != Vector2.INF:
             var path_distance := point.distance_to(Geometry2D.get_closest_point_to_segment(point, center, road_point))
-            local_dirt = maxf(local_dirt, 1.0 - smoothstep(0.55, 1.45, path_distance))
+            local_dirt = maxf(local_dirt, 1.0 - smoothstep(
+                _policy_number("terrain.influences.building_path_surface_inner_m", 0.55),
+                _policy_number("terrain.influences.building_path_surface_outer_m", 1.45),
+                path_distance
+            ))
     return Color(forest, settlement, coast, clampf(local_dirt, 0.0, 1.0))
 
 func _environment_height(point: Vector2, world: ResolvedWorld, masks: Color) -> float:
     var phase := _seed_phase(world.seed)
     var broad := (
-        sin(point.x * 0.027 + phase) * 1.05
-        + cos(point.y * 0.023 - phase * 0.73) * 0.85
-        + sin((point.x + point.y) * 0.014 + phase * 1.41) * 0.65
+        sin(point.x * _policy_number("terrain.geometry.broad_x_frequency", 0.027) + phase)
+        * _policy_number("terrain.geometry.broad_x_amplitude_m", 1.05)
+        + cos(point.y * _policy_number("terrain.geometry.broad_z_frequency", 0.023) - phase * 0.73)
+        * _policy_number("terrain.geometry.broad_z_amplitude_m", 0.85)
+        + sin(
+            (point.x + point.y)
+            * _policy_number("terrain.geometry.broad_diagonal_frequency", 0.014)
+            + phase * 1.41
+        ) * _policy_number("terrain.geometry.broad_diagonal_amplitude_m", 0.65)
     )
     var detail := (
-        sin(point.x * 0.071 - point.y * 0.043 + phase * 2.1) * 0.32
-        + cos(point.x * 0.049 + point.y * 0.061 - phase) * 0.24
+        sin(
+            point.x * _policy_number("terrain.geometry.detail_x_frequency", 0.071)
+            - point.y * _policy_number("terrain.geometry.detail_z_frequency", 0.043)
+            + phase * 2.1
+        ) * _policy_number("terrain.geometry.detail_first_amplitude_m", 0.32)
+        + cos(
+            point.x * _policy_number("terrain.geometry.detail_second_x_frequency", 0.049)
+            + point.y * _policy_number("terrain.geometry.detail_second_z_frequency", 0.061)
+            - phase
+        ) * _policy_number("terrain.geometry.detail_second_amplitude_m", 0.24)
     )
     var height := broad + detail
 
@@ -107,54 +147,110 @@ func _environment_height(point: Vector2, world: ResolvedWorld, masks: Color) -> 
     # feathers this personality at the Region edge; roads and building pads are
     # graded afterward and therefore remain usable inside a hilly forest.
     var forest_relief := (
-        sin(point.x * 0.041 + point.y * 0.026 + phase * 0.61) * 0.56
-        + cos(point.x * 0.019 - point.y * 0.044 - phase * 1.23) * 0.42
-        + detail * 0.48
+        sin(
+            point.x * _policy_number("terrain.geometry.forest_first_x_frequency", 0.041)
+            + point.y * _policy_number("terrain.geometry.forest_first_z_frequency", 0.026)
+            + phase * 0.61
+        ) * _policy_number("terrain.geometry.forest_first_amplitude_m", 0.56)
+        + cos(
+            point.x * _policy_number("terrain.geometry.forest_second_x_frequency", 0.019)
+            - point.y * _policy_number("terrain.geometry.forest_second_z_frequency", 0.044)
+            - phase * 1.23
+        ) * _policy_number("terrain.geometry.forest_second_amplitude_m", 0.42)
+        + detail * _policy_number("terrain.geometry.forest_detail_multiplier", 0.48)
     )
-    height += forest_relief * masks.r * FOREST_RELIEF_STRENGTH
+    height += forest_relief * masks.r * _policy_number(
+        "terrain.geometry.forest_relief_strength",
+        FOREST_RELIEF_STRENGTH
+    )
 
     # Region personality belongs to the terrain realization. Local road and
     # building grading is applied in separate passes so it can use their true
     # resolved geometry instead of treating the dirt-color mask as elevation.
     for region: ResolvedRegion in world.regions:
-        if region.semantic_type != "town" and region.semantic_type != "village" and region.semantic_type != "district":
+        if not _region_has_role(
+            region.semantic_type,
+            "settlement_surface",
+            ["town", "village", "district"]
+        ):
             continue
         var influence := _region_influence(point, region.polygon)
         if influence <= 0.0:
             continue
         var center := _polygon_center(region.polygon)
         var target := _macro_height(center, world.seed)
-        height = lerpf(height, target, influence * 0.82)
-    var height_limit := lerpf(BASE_HEIGHT_LIMIT, FOREST_HEIGHT_LIMIT, masks.r)
+        height = lerpf(
+            height,
+            target,
+            influence * _policy_number("terrain.geometry.settlement_flatten_strength", 0.82)
+        )
+    var height_limit := lerpf(
+        _policy_number("terrain.geometry.base_height_limit_m", BASE_HEIGHT_LIMIT),
+        _policy_number("terrain.geometry.forest_height_limit_m", FOREST_HEIGHT_LIMIT),
+        masks.r
+    )
     return clampf(height, -height_limit, height_limit)
 
 func _shape_coasts(point: Vector2, height: float, world: ResolvedWorld) -> float:
     var result := height
+    var land_blend := _policy_number("terrain.influences.coast_land_blend_m", COAST_LAND_BLEND_M)
+    var underwater_slope := _policy_number(
+        "terrain.influences.coast_underwater_slope",
+        COAST_UNDERWATER_SLOPE
+    )
     for water in world.waters:
         var cross_influence: float = water.cross_span_influence(point)
         if cross_influence <= 0.0:
             continue
         var distance: float = water.signed_distance_to_shore(point)
-        if distance < -COAST_LAND_BLEND_M:
+        if distance < -land_blend:
             continue
         var target := result
         var influence := cross_influence
         if distance < 0.0:
-            var beach_t := smoothstep(-COAST_LAND_BLEND_M, 0.0, distance)
-            target = lerpf(water.sea_level + 0.62, water.sea_level - 0.06, beach_t)
+            var beach_t := smoothstep(-land_blend, 0.0, distance)
+            target = lerpf(
+                water.sea_level + _policy_number(
+                    "terrain.influences.coast_land_height_above_sea_m",
+                    0.62
+                ),
+                water.sea_level + _policy_number(
+                    "terrain.influences.coast_shore_height_offset_m",
+                    -0.06
+                ),
+                beach_t
+            )
             influence *= beach_t
         else:
-            target = water.sea_level - 0.14 - minf(distance * COAST_UNDERWATER_SLOPE, 1.8)
+            target = (
+                water.sea_level
+                + _policy_number(
+                    "terrain.influences.coast_underwater_height_offset_m",
+                    -0.14
+                )
+                - minf(
+                    distance * underwater_slope,
+                    _policy_number(
+                        "terrain.influences.coast_max_underwater_drop_m",
+                        1.8
+                    )
+                )
+            )
         result = lerpf(result, target, influence)
-    return clampf(result, -FOREST_HEIGHT_LIMIT, FOREST_HEIGHT_LIMIT)
+    var height_limit := _policy_number(
+        "terrain.geometry.forest_height_limit_m",
+        FOREST_HEIGHT_LIMIT
+    )
+    return clampf(result, -height_limit, height_limit)
 
 func _shore_wetness(point: Vector2, world: ResolvedWorld) -> float:
     var result := 0.0
+    var wet_sand_width := _policy_number("terrain.influences.coast_wet_sand_m", COAST_WET_SAND_M)
     for water in world.waters:
         var distance: float = water.signed_distance_to_shore(point)
-        if distance > 0.8 or distance < -COAST_WET_SAND_M:
+        if distance > 0.8 or distance < -wet_sand_width:
             continue
-        var land_fade := smoothstep(-COAST_WET_SAND_M, -0.25, distance)
+        var land_fade := smoothstep(-wet_sand_width, -0.25, distance)
         var water_fade := 1.0 - smoothstep(-0.1, 0.8, distance)
         result = maxf(result, land_fade * water_fade * water.cross_span_influence(point))
     return result
@@ -162,13 +258,17 @@ func _shore_wetness(point: Vector2, world: ResolvedWorld) -> float:
 func _flatten_for_roads(point: Vector2, height: float, world: ResolvedWorld) -> float:
     var result := height
     var solver := PlacementSolver.new()
+    var blend_width := _policy_number(
+        "terrain.influences.road_terrain_blend_m",
+        ROAD_TERRAIN_BLEND_M
+    )
     for network: ResolvedNetwork in world.networks:
         if network.curve_points.size() < 2:
             continue
         var nearest := solver.nearest_point_on_network(point, network)
         var distance := point.distance_to(nearest)
         var half_width := network.width * 0.5
-        var influence := 1.0 - smoothstep(half_width, half_width + ROAD_TERRAIN_BLEND_M, distance)
+        var influence := 1.0 - smoothstep(half_width, half_width + blend_width, distance)
         if influence <= 0.0:
             continue
         # The target still follows the road longitudinally through the macro
@@ -181,10 +281,14 @@ func _flatten_for_roads(point: Vector2, height: float, world: ResolvedWorld) -> 
 
 func _flatten_for_buildings(point: Vector2, height: float, buildings: Array) -> float:
     var result := height
+    var blend_width := _policy_number(
+        "terrain.influences.building_flatten_blend_m",
+        2.8
+    )
     for building in buildings:
         var center: Vector2 = building["center"]
         var radius := float(building["flatten_radius"])
-        var influence := 1.0 - smoothstep(radius, radius + 2.8, point.distance_to(center))
+        var influence := 1.0 - smoothstep(radius, radius + blend_width, point.distance_to(center))
         if influence > 0.0:
             result = lerpf(result, float(building["target_height"]), influence)
     return result
@@ -224,7 +328,10 @@ func _building_influence(center: Vector2, radius: float, networks: Array) -> Dic
         if distance < closest_distance:
             closest = point
             closest_distance = distance
-    if closest_distance > BUILDING_PATH_MAX_LENGTH_M:
+    if closest_distance > _policy_number(
+        "terrain.influences.building_path_max_length_m",
+        BUILDING_PATH_MAX_LENGTH_M
+    ):
         closest = Vector2.INF
     return {
         "center": center,
@@ -251,18 +358,28 @@ func _surface_masks_without_local_dirt(point: Vector2, world: ResolvedWorld) -> 
     var coast := 0.0
     for region: ResolvedRegion in world.regions:
         var influence := _region_influence(point, region.polygon)
-        match region.semantic_type:
-            "forest", "swamp": forest = maxf(forest, influence)
-            "town", "village", "district": settlement = maxf(settlement, influence)
-            "coast": coast = maxf(coast, influence)
+        if _region_has_role(region.semantic_type, "forest_surface", ["forest", "swamp"]):
+            forest = maxf(forest, influence)
+        elif _region_has_role(
+            region.semantic_type,
+            "settlement_surface",
+            ["town", "village", "district"]
+        ):
+            settlement = maxf(settlement, influence)
+        elif _region_has_role(region.semantic_type, "coast_surface", ["coast"]):
+            coast = maxf(coast, influence)
     return Color(forest, settlement, coast, 0.0)
 
 func _road_influence(point: Vector2, networks: Array) -> float:
     var result := 0.0
     var solver := PlacementSolver.new()
+    var shoulder := _policy_number("terrain.influences.road_shoulder_m", ROAD_SHOULDER_M)
     for network: ResolvedNetwork in networks:
         var distance := point.distance_to(solver.nearest_point_on_network(point, network))
-        result = maxf(result, 1.0 - smoothstep(network.width * 0.5, network.width * 0.5 + ROAD_SHOULDER_M, distance))
+        result = maxf(
+            result,
+            1.0 - smoothstep(network.width * 0.5, network.width * 0.5 + shoulder, distance)
+        )
     return result
 
 func _region_influence(point: Vector2, polygon: PackedVector2Array) -> float:
@@ -270,7 +387,11 @@ func _region_influence(point: Vector2, polygon: PackedVector2Array) -> float:
         return 0.0
     var distance := _distance_to_polygon_edge(point, polygon)
     var signed_distance := distance if Geometry2D.is_point_in_polygon(point, polygon) else -distance
-    return smoothstep(-REGION_OUTER_BLEND_M, REGION_INNER_BLEND_M, signed_distance)
+    return smoothstep(
+        -_policy_number("terrain.influences.region_outer_blend_m", REGION_OUTER_BLEND_M),
+        _policy_number("terrain.influences.region_inner_blend_m", REGION_INNER_BLEND_M),
+        signed_distance
+    )
 
 func _distance_to_polygon_edge(point: Vector2, polygon: PackedVector2Array) -> float:
     var result := INF
@@ -294,10 +415,33 @@ func _polygon_center(polygon: PackedVector2Array) -> Vector2:
 func _macro_height(point: Vector2, seed_value: int) -> float:
     var phase := _seed_phase(seed_value)
     return (
-        sin(point.x * 0.027 + phase) * 1.05
-        + cos(point.y * 0.023 - phase * 0.73) * 0.85
-        + sin((point.x + point.y) * 0.014 + phase * 1.41) * 0.65
+        sin(point.x * _policy_number("terrain.geometry.broad_x_frequency", 0.027) + phase)
+        * _policy_number("terrain.geometry.broad_x_amplitude_m", 1.05)
+        + cos(point.y * _policy_number("terrain.geometry.broad_z_frequency", 0.023) - phase * 0.73)
+        * _policy_number("terrain.geometry.broad_z_amplitude_m", 0.85)
+        + sin(
+            (point.x + point.y)
+            * _policy_number("terrain.geometry.broad_diagonal_frequency", 0.014)
+            + phase * 1.41
+        ) * _policy_number("terrain.geometry.broad_diagonal_amplitude_m", 0.65)
     )
+
+func _policy_number(path: String, fallback: float) -> float:
+    if not _policy_number_cache.has(path):
+        _policy_number_cache[path] = realization_policy.number(path, fallback)
+    return float(_policy_number_cache[path])
+
+func _region_has_role(
+    semantic_type: String,
+    role: String,
+    fallback: Array
+) -> bool:
+    if not _region_role_cache.has(role):
+        _region_role_cache[role] = realization_policy.string_array(
+            "terrain.region_roles.%s" % role,
+            fallback
+        )
+    return semantic_type in (_region_role_cache[role] as Array)
 
 func _seed_phase(seed_value: int) -> float:
     return float(abs(seed_value) % 100003) / 100003.0 * TAU

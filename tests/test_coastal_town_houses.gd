@@ -51,8 +51,80 @@ func _init() -> void:
     candidate.free()
     runtime.free()
 
+    _test_chunk_dependency_closure(ir, catalog)
+
     print("Coastal town house placement regression tests passed")
     quit(0)
+
+func _test_chunk_dependency_closure(ir: Dictionary, catalog: PrototypeCatalog) -> void:
+    var before := JSON.stringify(ir)
+    var generator := ChunkGenerator.new(catalog)
+
+    # The center Chunk retains the same legal semantic graph as V0.
+    var center_ir := generator._interpret_world_ir(ir, Vector2i.ZERO, {}, [])
+    assert(_raw_ids(center_ir, "regions") == [
+        "abandoned_seaside_town",
+        "forest",
+        "coast",
+    ])
+    assert(_raw_ids(center_ir, "networks") == ["main_road"])
+    assert(_raw_ids(center_ir, "distributions") == ["houses", "forest_trees"])
+
+    # In the northwest Preview, east-anchored coast is absent. Dependency
+    # closure must then prune town -> road/houses before Backend lowering while
+    # preserving the independent forest graph.
+    var northwest_ir := generator._interpret_world_ir(ir, Vector2i(-1, -1), {}, [])
+    assert(_raw_ids(northwest_ir, "regions") == ["forest"])
+    assert(_raw_ids(northwest_ir, "networks").is_empty())
+    assert(_raw_ids(northwest_ir, "entities").is_empty())
+    assert(_raw_ids(northwest_ir, "distributions") == ["forest_trees"])
+    assert(JSON.stringify(ir) == before)
+
+    # Closure is only for targets explicitly removed by Chunk interpretation.
+    # A globally invalid/missing target must still reach normal validation and
+    # fail; the pruning pass is not an error-swallowing mechanism.
+    var invalid_ir := ir.duplicate(true)
+    invalid_ir["regions"][0]["placement"]["relations"][0]["target"] = "missing_coast"
+    var invalid_northwest_ir := generator._interpret_world_ir(
+        invalid_ir,
+        Vector2i(-1, -1),
+        {},
+        []
+    )
+    assert(_raw_ids(invalid_northwest_ir, "regions") == [
+        "abandoned_seaside_town",
+        "forest",
+    ])
+    var invalid_chunk := generator.generate_chunk(
+        Vector2i(-1, -1),
+        invalid_ir,
+        0,
+        1337
+    )
+    assert(not invalid_chunk.errors.is_empty())
+
+    # The production manager exercises the live ArtLab realization policy while
+    # materializing the full initial 3x3 window. Pruning an inapplicable semantic
+    # branch must not turn any Preview into a world-initialization failure.
+    var dresser := ForestDresser.new()
+    assert(dresser.realization_policy.warnings.is_empty())
+    var manager := ChunkManager.new()
+    root.add_child(manager)
+    manager.configure(catalog)
+    assert(manager.initialize_world(ir, 0, 1337, Vector3(20.0, 3.0, 20.0)))
+    assert(manager.get_active_records().size() == 9)
+    var northwest_record := manager.get_record(Vector2i(-1, -1))
+    assert(northwest_record != null and northwest_record.resolved_chunk != null)
+    var northwest := northwest_record.resolved_chunk
+    assert(northwest.errors.is_empty())
+    assert(northwest.find_region("forest") != null)
+    assert(northwest.find_region("coast") == null)
+    assert(northwest.find_region("abandoned_seaside_town") == null)
+    assert(northwest.find_network("main_road") == null)
+    assert(northwest.find_distribution("houses") == null)
+    assert(northwest.find_distribution("forest_trees") != null)
+    assert(northwest.terrain != null)
+    manager.free()
 
 func _reported_ir() -> Dictionary:
     return {
@@ -101,6 +173,12 @@ func _region_ids(world: ResolvedWorld) -> Array[String]:
     var result: Array[String] = []
     for region: ResolvedRegion in world.regions:
         result.append(region.id)
+    return result
+
+func _raw_ids(world_ir: Dictionary, collection_name: String) -> Array[String]:
+    var result: Array[String] = []
+    for item: Dictionary in world_ir.get(collection_name, []):
+        result.append(String(item.get("id", "")))
     return result
 
 func _polygon_intersection_area(a: PackedVector2Array, b: PackedVector2Array) -> float:
