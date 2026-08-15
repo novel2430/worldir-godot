@@ -13,7 +13,7 @@ A GDScript-first Godot 4.7 project implementing the architecture baseline:
 5. The fake compiler automatically generates a playable coastal-town demo.
 6. Move with **WASD or arrow keys**, look with mouse, `Esc` releases mouse.
 
-No external 3D assets and no LLM server are required for the first run. Placeholder TSCN prototypes are included.
+No external 3D assets and no LLM server are required for the first run. The repository includes a small KayKit low-poly baseline plus local placeholder prototypes.
 
 ## Demo edit flow
 
@@ -51,6 +51,11 @@ For a real tree:
 7. Add the prototype path and semantic mapping in `scripts/prototype/prototype_catalog.gd`.
 
 No placement/backend/runtime code needs to change.
+
+The current visual baseline uses CC0 KayKit Forest Nature models for six seeded tree
+variations and KayKit Medieval Hexagon models for two houses and one church. Only the
+referenced GLTF/BIN/shared texture files are stored under `assets/raw/kaykit/`; the
+corresponding license texts are kept beside them.
 
 ## Current V0 implementation
 

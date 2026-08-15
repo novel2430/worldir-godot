@@ -28,7 +28,7 @@ func _run() -> void:
         _finish()
         return
     _expect(network.curve_points.size() >= 2, "NetworkLowerer must produce road curve points")
-    _expect(is_equal_approx(network.width, 5.5), "Road width must reach RoadBuilder unchanged")
+    _expect(is_equal_approx(network.width, 4.2), "Road width must reach RoadBuilder unchanged")
 
     var scene_runtime := SceneRuntime.new()
     var candidate := scene_runtime.build_candidate(resolved, catalog)
@@ -77,6 +77,8 @@ func _run() -> void:
     _expect(material != null, "Road mesh must have a material")
     if material != null:
         _expect(material.cull_mode == BaseMaterial3D.CULL_BACK, "Road must remain backface-culled")
+        _expect(material.albedo_color.is_equal_approx(Color(0.29, 0.245, 0.18)), "Road must use the muted warm dirt palette")
+        _expect(is_equal_approx(material.roughness, 1.0), "Road material must stay fully rough")
     _expect(is_equal_approx(road_mesh_instance.mesh.get_aabb().position.y, 0.08), "Road mesh must retain its visible height")
     _test_curved_road_joins()
 

@@ -12,6 +12,15 @@ extends StaticBody3D
 @export_range(0.0, 100.0, 0.1) var population_spacing: float = 2.0
 @export_range(0.1, 1.0, 0.05) var population_occupancy_scale: float = 0.75
 @export var population_footprint_override: Vector2 = Vector2.ZERO
+@export_range(0.5, 2.0, 0.01) var population_scale_min: float = 1.0
+@export_range(0.5, 2.0, 0.01) var population_scale_max: float = 1.0
+@export_range(0.0, 1.0, 0.01) var population_landmark_chance: float = 0.0
+@export_range(1.0, 2.0, 0.01) var population_landmark_scale: float = 1.0
+
+# Optional roadside realization hints. They affect only explicit Distributions
+# with an `along` relation and never become World IR semantics.
+@export_range(0.0, 20.0, 0.1) var roadside_setback: float = 1.0
+@export_range(0.0, 45.0, 0.5) var roadside_yaw_jitter_degrees: float = 0.0
 
 func placement_clearance_radius() -> float:
     return placement_radius + clearance

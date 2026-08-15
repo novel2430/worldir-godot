@@ -1,37 +1,47 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene format=3 uid="uid://hs3sb2x1mhie"]
 
-[ext_resource type="Script" path="res://scripts/prototype/world_prototype.gd" id="1"]
+[ext_resource type="Script" uid="uid://igngds7qtarh" path="res://scripts/prototype/world_prototype.gd" id="1"]
+
 [sub_resource type="StandardMaterial3D" id="StoneMat"]
 albedo_color = Color(0.43, 0.44, 0.41, 1)
+
 [sub_resource type="BoxMesh" id="Body"]
+material = SubResource("StoneMat")
 size = Vector3(10, 8, 17)
-material = SubResource("StoneMat")
-[sub_resource type="BoxMesh" id="Tower"]
-size = Vector3(5, 12, 5)
-material = SubResource("StoneMat")
+
 [sub_resource type="StandardMaterial3D" id="RoofMat"]
 albedo_color = Color(0.19, 0.18, 0.17, 1)
+
 [sub_resource type="PrismMesh" id="Roof"]
-size = Vector3(11, 4, 18)
 material = SubResource("RoofMat")
+size = Vector3(11, 4, 18)
+
+[sub_resource type="BoxMesh" id="Tower"]
+material = SubResource("StoneMat")
+size = Vector3(5, 12, 5)
+
 [sub_resource type="BoxShape3D" id="Shape"]
 size = Vector3(10, 8, 17)
 
-[node name="ChurchPrototype" type="StaticBody3D"]
+[node name="ChurchPrototype" type="StaticBody3D" unique_id=968669775]
 script = ExtResource("1")
 prototype_id = "church_01"
 semantic_type = "church"
 placement_radius = 10.0
 clearance = 2.0
-[node name="Body" type="MeshInstance3D" parent="."]
-position = Vector3(0, 4, 0)
+
+[node name="Body" type="MeshInstance3D" parent="." unique_id=960628790]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4, 0)
 mesh = SubResource("Body")
-[node name="Roof" type="MeshInstance3D" parent="."]
-position = Vector3(0, 9.5, 0)
+
+[node name="Roof" type="MeshInstance3D" parent="." unique_id=1749664829]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 9.5, 0)
 mesh = SubResource("Roof")
-[node name="Tower" type="MeshInstance3D" parent="."]
-position = Vector3(0, 9, -5)
+
+[node name="Tower" type="MeshInstance3D" parent="." unique_id=1356390788]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 9, -5)
 mesh = SubResource("Tower")
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-position = Vector3(0, 4, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=942734602]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4, 0)
 shape = SubResource("Shape")

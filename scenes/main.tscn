@@ -1,4 +1,4 @@
-[gd_scene format=3 uid="uid://dficvhot5htvc"]
+[gd_scene load_steps=13 format=3 uid="uid://dficvhot5htvc"]
 
 [ext_resource type="Script" uid="uid://jki1tmx26qs7" path="res://scripts/app/world_coordinator.gd" id="1"]
 [ext_resource type="Script" uid="uid://ctbiqxonjpddt" path="res://scripts/app/world_state.gd" id="2"]
@@ -8,15 +8,33 @@
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/ui/prompt_panel.tscn" id="7"]
 
+[sub_resource type="ProceduralSkyMaterial" id="SkyMaterial"]
+sky_top_color = Color(0.20, 0.36, 0.52, 1)
+sky_horizon_color = Color(0.72, 0.76, 0.72, 1)
+ground_bottom_color = Color(0.12, 0.14, 0.12, 1)
+ground_horizon_color = Color(0.58, 0.56, 0.47, 1)
+sun_angle_max = 18.0
+sun_curve = 0.08
+
+[sub_resource type="Sky" id="Sky"]
+sky_material = SubResource("SkyMaterial")
+
 [sub_resource type="Environment" id="Env"]
-background_mode = 1
-background_color = Color(0.18, 0.24, 0.3, 1)
+background_mode = 2
+sky = SubResource("Sky")
 ambient_light_source = 3
-ambient_light_color = Color(0.73, 0.78, 0.82, 1)
-ambient_light_energy = 0.55
+ambient_light_color = Color(0.76, 0.79, 0.75, 1)
+ambient_light_energy = 0.72
+reflected_light_source = 2
+fog_enabled = true
+fog_light_color = Color(0.71, 0.72, 0.66, 1)
+fog_light_energy = 0.45
+fog_density = 0.0025
+fog_sky_affect = 0.35
 
 [sub_resource type="StandardMaterial3D" id="GroundMat"]
-albedo_color = Color(0.2, 0.22, 0.17, 1)
+albedo_color = Color(0.20, 0.225, 0.17, 1)
+roughness = 1.0
 
 [sub_resource type="BoxMesh" id="GroundMesh"]
 size = Vector3(160, 0.2, 160)
@@ -30,9 +48,11 @@ size = Vector3(160, 0.2, 160)
 environment = SubResource("Env")
 
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=297099342]
-transform = Transform3D(0.88294756, 0.36994863, -0.2890356, 0, 0.6156615, 0.7880107, 0.46947157, -0.6957722, 0.5435968, 0, 0, 0)
-light_energy = 1.1
+rotation_degrees = Vector3(-38, -35, 0)
+light_color = Color(1, 0.87, 0.73, 1)
+light_energy = 0.92
 shadow_enabled = true
+directional_shadow_max_distance = 130.0
 
 [node name="BaseGround" type="StaticBody3D" parent="." unique_id=574659913]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.12, 0)

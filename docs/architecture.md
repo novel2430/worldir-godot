@@ -1291,7 +1291,7 @@ tests/
 主要修改：
 
 ```text
-assets/prototypes/house_01.tscn
+assets/prototypes/buildings/house_01.tscn
 ```
 
 ---

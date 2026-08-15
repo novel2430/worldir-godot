@@ -6,10 +6,10 @@ const RuntimeBindingResolverScript = preload("res://scripts/backend/runtime_bind
 # Runtime payloads remain authoritative geometry. This size is only the fallback
 # used by the existing binding resolver when a payload has no explicit AABB.
 const BINDING_FALLBACK_SIZE: Vector2 = Vector2(30.0, 30.0)
-const EDGE_SEGMENTS: int = 9
-const REGION_NOISE_RATIO: float = 0.075
+const EDGE_SEGMENTS: int = 14
+const REGION_NOISE_RATIO: float = 0.10
 const REGION_NOISE_MIN_M: float = 2.0
-const REGION_NOISE_MAX_M: float = 7.0
+const REGION_NOISE_MAX_M: float = 8.0
 const LARGE_SCALE_TYPES: Array[String] = ["forest", "coast", "swamp", "field"]
 
 var binding_resolver = RuntimeBindingResolverScript.new()

@@ -2,15 +2,28 @@ class_name PrototypeCatalog
 extends Node
 
 const PROTOTYPES := {
-    "tree_01": "res://assets/prototypes/tree_01.tscn",
-    "house_01": "res://assets/prototypes/house_01.tscn",
-    "church_01": "res://assets/prototypes/church_01.tscn",
+    "tree_01": "res://assets/prototypes/nature/tree_01.tscn",
+    "tree_02": "res://assets/prototypes/nature/tree_02.tscn",
+    "tree_03": "res://assets/prototypes/nature/tree_03.tscn",
+    "tree_04": "res://assets/prototypes/nature/tree_04.tscn",
+    "tree_05": "res://assets/prototypes/nature/tree_05.tscn",
+    "tree_06": "res://assets/prototypes/nature/tree_06.tscn",
+    "house_01": "res://assets/prototypes/buildings/house_01.tscn",
+    "house_02": "res://assets/prototypes/buildings/house_02.tscn",
+    "church_01": "res://assets/prototypes/buildings/church_01.tscn",
     "tombstone_01": "res://assets/prototypes/tombstone_01.tscn",
 }
 
 const SEMANTIC_TYPES := {
-    "tree": ["tree_01"],
-    "house": ["house_01"],
+    "tree": [
+        "tree_01",
+        "tree_02",
+        "tree_03",
+        "tree_04",
+        "tree_05",
+        "tree_06",
+    ],
+    "house": ["house_01", "house_02"],
     "church": ["church_01"],
     "tombstone": ["tombstone_01"],
 }
@@ -18,11 +31,19 @@ const SEMANTIC_TYPES := {
 var _scene_cache: Dictionary = {}
 var _metadata_cache: Dictionary = {}
 
-func choose_prototype(semantic_type: String, _rng: RandomNumberGenerator = null) -> String:
+func choose_prototype(semantic_type: String, rng: RandomNumberGenerator = null) -> String:
     var options: Array = SEMANTIC_TYPES.get(semantic_type, [])
     if options.is_empty():
         return ""
+    if rng != null and options.size() > 1:
+        return String(options[rng.randi_range(0, options.size() - 1)])
     return String(options[0])
+
+func get_prototype_ids(semantic_type: String) -> Array[String]:
+    var result: Array[String] = []
+    for prototype_id in SEMANTIC_TYPES.get(semantic_type, []):
+        result.append(String(prototype_id))
+    return result
 
 func get_scene(prototype_id: String) -> PackedScene:
     if _scene_cache.has(prototype_id):
@@ -70,6 +91,12 @@ func get_metadata(prototype_id: String) -> Dictionary:
         "population_footprint": population_footprint,
         "population_spacing": instance.population_spacing,
         "population_occupancy_radius": population_occupancy_radius,
+        "population_scale_min": instance.population_scale_min,
+        "population_scale_max": instance.population_scale_max,
+        "population_landmark_chance": instance.population_landmark_chance,
+        "population_landmark_scale": instance.population_landmark_scale,
+        "roadside_setback": instance.roadside_setback,
+        "roadside_yaw_jitter_degrees": instance.roadside_yaw_jitter_degrees,
     }
     instance.free()
     _metadata_cache[prototype_id] = meta

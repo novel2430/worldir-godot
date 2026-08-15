@@ -14,8 +14,10 @@ func build(network: ResolvedNetwork) -> Node3D:
     mesh_instance.name = "RoadMesh"
     mesh_instance.mesh = _build_ribbon(points, network.width)
     var material := StandardMaterial3D.new()
-    material.albedo_color = Color(0.16, 0.17, 0.18)
-    material.roughness = 0.95
+    # Warm, low-contrast dirt reads more naturally beside the muted ground than
+    # the previous near-black concrete strip. Surface kind remains road semantics.
+    material.albedo_color = Color(0.29, 0.245, 0.18)
+    material.roughness = 1.0
     mesh_instance.material_override = material
     root.add_child(mesh_instance)
     _add_collision_segments(root, points, network.width)

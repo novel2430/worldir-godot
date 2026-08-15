@@ -18,7 +18,7 @@ func lower(
 	var out := ResolvedNetwork.new()
 	out.id = String(item.get("id", ""))
 	out.semantic_type = String(item.get("type", "road"))
-	out.width = 5.5 if out.semantic_type == "road" else 2.5
+	out.width = 4.2 if out.semantic_type == "road" else 2.2
 	out.surface_kind = out.semantic_type
 
 	var placement: Dictionary = item.get("placement", {})
@@ -116,7 +116,9 @@ func lower(
 			if seg > 0 and i == 0:
 				continue
 			var t: float = float(i) / float(steps - 1)
-			var bend: float = sin(t * PI) * local_rng.randf_range(-5.0, 5.0)
+			# A small seeded deflection avoids a rigid ruler-straight road without
+			# turning the road surface into the scene's dominant visual mass.
+			var bend: float = sin(t * PI) * local_rng.randf_range(-3.0, 3.0)
 			var p: Vector2 = a.lerp(b, t) + normal * bend
 			if constrained_domain.has_area():
 				p = _clamp_point(p, constrained_domain)

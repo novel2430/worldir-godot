@@ -1,0 +1,23 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototype/world_prototype.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/raw/kaykit/medieval/building_church_green.gltf" id="2_model"]
+
+[sub_resource type="BoxShape3D" id="BuildingShape"]
+size = Vector3(9.5, 10, 10.5)
+
+[node name="Church01" type="StaticBody3D"]
+script = ExtResource("1_script")
+prototype_id = "church_01"
+semantic_type = "church"
+placement_radius = 7.8
+clearance = 2.0
+
+[node name="VisualRoot" type="Node3D" parent="."]
+scale = Vector3(10, 10, 10)
+
+[node name="Model" parent="VisualRoot" instance=ExtResource("2_model")]
+
+[node name="BuildingCollision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 5, 0)
+shape = SubResource("BuildingShape")

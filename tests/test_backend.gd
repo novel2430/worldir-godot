@@ -18,10 +18,15 @@ func _init() -> void:
     assert(resolved.entities.size() == 1)
     assert(resolved.distributions.size() == 2)
     assert(resolved.find_network("main_road").curve_points.size() >= 2)
+    assert(resolved.find_entity("church").prototype_id == "church_01")
 
     _test_density_gradient(result.world_ir, catalog)
     _test_prototype_population_footprints(catalog)
+    _test_kaykit_baseline_prototypes(catalog)
+    _test_seeded_visual_realization(resolved)
+    _test_afternoon_environment()
     _test_area_based_density_budget(catalog)
+    _test_runtime_instantiates_catalog_assets(resolved, catalog)
     _test_runtime_binding(catalog)
     _test_forest_has_no_implicit_trees(catalog)
     _test_anchor_inside_conjunction(catalog)
@@ -79,8 +84,9 @@ func _test_area_based_density_budget(catalog: PrototypeCatalog) -> void:
     var repeated_medium := _lower_density_forest(catalog, "medium", 80.0, 4242)
     var large_high := _lower_density_forest(catalog, "high", 80.0, 4242)
     var medium_houses := _lower_density_distribution(catalog, "house", "medium", 80.0, 4242)
+    var repeated_houses := _lower_density_distribution(catalog, "house", "medium", 80.0, 4242)
 
-    for resolved in [small_medium, large_low, large_medium, repeated_medium, large_high, medium_houses]:
+    for resolved in [small_medium, large_low, large_medium, repeated_medium, large_high, medium_houses, repeated_houses]:
         assert(resolved.errors.is_empty())
 
     var small_trees: ResolvedDistribution = small_medium.find_distribution("trees")
@@ -89,33 +95,168 @@ func _test_area_based_density_budget(catalog: PrototypeCatalog) -> void:
     var repeated_trees: ResolvedDistribution = repeated_medium.find_distribution("trees")
     var high_trees: ResolvedDistribution = large_high.find_distribution("trees")
     var houses: ResolvedDistribution = medium_houses.find_distribution("houses")
-    assert(small_trees != null and low_trees != null and medium_trees != null and repeated_trees != null and high_trees != null and houses != null)
+    var repeated_house_instances: ResolvedDistribution = repeated_houses.find_distribution("houses")
+    assert(small_trees != null and low_trees != null and medium_trees != null and repeated_trees != null and high_trees != null and houses != null and repeated_house_instances != null)
 
     assert(small_trees.instances.size() < medium_trees.instances.size())
     assert(low_trees.instances.size() < medium_trees.instances.size())
-    assert(medium_trees.instances.size() < high_trees.instances.size())
+    # A safety cap may make adjacent density levels equal for very small models.
+    assert(medium_trees.instances.size() <= high_trees.instances.size())
     assert(medium_trees.instances.size() == _expected_density_count(catalog, "tree", "medium", 80.0 * 80.0))
     assert(houses.instances.size() == _expected_density_count(catalog, "house", "medium", 80.0 * 80.0))
     assert(medium_trees.instances.size() > int(round(80.0 * 80.0 / 180.0)))
     assert(houses.instances.size() > int(round(80.0 * 80.0 / 550.0)))
     assert(medium_trees.instances.size() == repeated_trees.instances.size())
+    var used_tree_prototypes := {}
     for index in range(medium_trees.instances.size()):
         var transform: Transform3D = medium_trees.instances[index]["transform"]
         var repeated_transform: Transform3D = repeated_trees.instances[index]["transform"]
         assert(transform.is_equal_approx(repeated_transform))
+        var prototype_id := String(medium_trees.instances[index]["prototype_id"])
+        used_tree_prototypes[prototype_id] = true
+        assert(prototype_id == String(repeated_trees.instances[index]["prototype_id"]))
+    assert(used_tree_prototypes.size() > 1)
+    var used_house_prototypes := {}
+    assert(houses.instances.size() == repeated_house_instances.instances.size())
+    for index in range(houses.instances.size()):
+        var instance: Dictionary = houses.instances[index]
+        var repeated_instance: Dictionary = repeated_house_instances.instances[index]
+        var prototype_id := String(instance["prototype_id"])
+        used_house_prototypes[prototype_id] = true
+        assert(prototype_id == String(repeated_instance["prototype_id"]))
+        assert((instance["transform"] as Transform3D).is_equal_approx(repeated_instance["transform"] as Transform3D))
+    assert(used_house_prototypes.size() == 2)
 
 func _test_prototype_population_footprints(catalog: PrototypeCatalog) -> void:
     var tree := catalog.get_metadata("tree_01")
     var house := catalog.get_metadata("house_01")
-    assert((tree["visual_footprint"] as Vector2).distance_to(Vector2(2.3, 2.3)) < 0.01)
-    assert((tree["collision_footprint"] as Vector2).is_equal_approx(Vector2(0.9, 0.9)))
-    assert((house["visual_footprint"] as Vector2).is_equal_approx(Vector2(8.0, 10.0)))
-    assert((house["collision_footprint"] as Vector2).is_equal_approx(Vector2(7.0, 9.0)))
+    assert((tree["visual_footprint"] as Vector2).distance_to(Vector2(4.294, 4.389)) < 0.02)
+    assert((tree["collision_footprint"] as Vector2).distance_to(Vector2(1.026, 1.026)) < 0.002)
+    assert((house["visual_footprint"] as Vector2).distance_to(Vector2(7.92, 8.537)) < 0.02)
+    assert((house["collision_footprint"] as Vector2).is_equal_approx(Vector2(7.5, 8.0)))
 
     # Population occupancy is deliberately smaller than the full visual bounds:
     # crowns/eaves may overlap, while the core footprint still prevents piling up.
     assert(float(tree["population_occupancy_radius"]) < (tree["visual_footprint"] as Vector2).length() * 0.5)
     assert(float(house["population_occupancy_radius"]) < (house["visual_footprint"] as Vector2).length() * 0.5)
+
+func _test_seeded_visual_realization(resolved: ResolvedWorld) -> void:
+    var houses: ResolvedDistribution = resolved.find_distribution("houses")
+    var trees: ResolvedDistribution = resolved.find_distribution("trees")
+    var forest: ResolvedRegion = resolved.find_region("forest")
+    assert(houses != null and trees != null and forest != null)
+
+    var minimum_house_scale := INF
+    var maximum_house_scale := 0.0
+    for instance in houses.instances:
+        var scale := (instance["transform"] as Transform3D).basis.get_scale().x
+        minimum_house_scale = minf(minimum_house_scale, scale)
+        maximum_house_scale = maxf(maximum_house_scale, scale)
+        assert(scale >= 0.92 - 0.001 and scale <= 1.08 + 0.001)
+    assert(maximum_house_scale - minimum_house_scale > 0.05)
+
+    var minimum_tree_scale := INF
+    var maximum_tree_scale := 0.0
+    var shallow_edge_count := 0
+    var total_edge_distance := 0.0
+    for instance in trees.instances:
+        var transform: Transform3D = instance["transform"]
+        var scale := transform.basis.get_scale().x
+        minimum_tree_scale = minf(minimum_tree_scale, scale)
+        maximum_tree_scale = maxf(maximum_tree_scale, scale)
+        var point := Vector2(transform.origin.x, transform.origin.z)
+        var edge_distance := _distance_to_polygon_edge(point, forest.polygon)
+        total_edge_distance += edge_distance
+        if edge_distance < 4.0:
+            shallow_edge_count += 1
+    assert(minimum_tree_scale >= 0.90 - 0.001)
+    assert(maximum_tree_scale <= 1.15 * 1.28 + 0.001)
+    assert(maximum_tree_scale > 1.15) # Seeded occasional canopy landmark.
+    assert(float(shallow_edge_count) / float(trees.instances.size()) < 0.20)
+    assert(total_edge_distance / float(trees.instances.size()) > 8.0)
+
+func _test_afternoon_environment() -> void:
+    var packed := load("res://scenes/main.tscn") as PackedScene
+    assert(packed != null)
+    var scene := packed.instantiate() as Node3D
+    assert(scene != null)
+    var world_environment := scene.get_node("WorldEnvironment") as WorldEnvironment
+    var sun := scene.get_node("Sun") as DirectionalLight3D
+    assert(world_environment.environment.background_mode == Environment.BG_SKY)
+    assert(world_environment.environment.sky != null)
+    assert(world_environment.environment.fog_enabled)
+    assert(world_environment.environment.ambient_light_energy > 0.65)
+    assert(sun.light_color.r > sun.light_color.b)
+    assert(sun.rotation_degrees.x > -50.0 and sun.rotation_degrees.x < -25.0)
+    scene.free()
+
+func _test_kaykit_baseline_prototypes(catalog: PrototypeCatalog) -> void:
+    var tree_ids := [
+        "tree_01",
+        "tree_02",
+        "tree_03",
+        "tree_04",
+        "tree_05",
+        "tree_06",
+    ]
+    assert(catalog.get_prototype_ids("tree") == tree_ids)
+    assert(catalog.get_prototype_ids("house") == ["house_01", "house_02"])
+    assert(catalog.get_prototype_ids("church") == ["church_01"])
+    assert(catalog.choose_prototype("tree") == tree_ids[0])
+    for prototype_id in tree_ids:
+        var scene := catalog.get_scene(prototype_id)
+        assert(scene != null)
+        var instance := scene.instantiate() as WorldPrototype
+        assert(instance != null)
+        assert(instance.prototype_id == prototype_id)
+        assert(instance.semantic_type == "tree")
+        var collision_shapes := instance.find_children("*", "CollisionShape3D", true, false)
+        assert(collision_shapes.size() == 1)
+        assert((collision_shapes[0] as CollisionShape3D).shape is CapsuleShape3D)
+        var metadata := catalog.get_metadata(prototype_id)
+        var visual_footprint: Vector2 = metadata.get("visual_footprint", Vector2.ZERO)
+        var collision_footprint: Vector2 = metadata.get("collision_footprint", Vector2.ZERO)
+        assert(visual_footprint.x > 0.0 and visual_footprint.y > 0.0)
+        assert(collision_footprint.x > 0.0 and collision_footprint.y > 0.0)
+        assert(collision_footprint.x < visual_footprint.x)
+        instance.free()
+
+    for prototype_id in ["house_01", "house_02", "church_01"]:
+        var scene := catalog.get_scene(prototype_id)
+        assert(scene != null)
+        var instance := scene.instantiate() as WorldPrototype
+        assert(instance != null)
+        assert(instance.prototype_id == prototype_id)
+        assert(instance.semantic_type == ("church" if prototype_id == "church_01" else "house"))
+        assert(instance.find_children("*", "MeshInstance3D", true, false).size() > 0)
+        assert(instance.find_children("*", "CollisionShape3D", true, false).size() == 1)
+        instance.free()
+
+func _test_runtime_instantiates_catalog_assets(resolved: ResolvedWorld, catalog: PrototypeCatalog) -> void:
+    var runtime := SceneRuntime.new()
+    var candidate := runtime.build_candidate(resolved, catalog)
+    assert(candidate != null)
+    var church := candidate.get_node_or_null("Entities/church") as WorldPrototype
+    assert(church != null)
+    assert(church.prototype_id == "church_01")
+    assert(church.find_children("*", "MeshInstance3D", true, false).size() > 0)
+    var distribution_nodes := candidate.get_node("Distributions").find_children("*", "WorldPrototype", true, false)
+    assert(not distribution_nodes.is_empty())
+    var forest_mesh := candidate.get_node("Regions/forest").get_child(0) as MeshInstance3D
+    var forest_material := forest_mesh.material_override as StandardMaterial3D
+    var forest_arrays: Array = forest_mesh.mesh.surface_get_arrays(0)
+    var forest_colors: PackedColorArray = forest_arrays[Mesh.ARRAY_COLOR]
+    assert(forest_material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA)
+    assert(forest_material.vertex_color_use_as_albedo)
+    assert(not forest_colors.is_empty())
+    var has_feathered_edge := false
+    var has_opaque_interior := false
+    for color in forest_colors:
+        has_feathered_edge = has_feathered_edge or color.a < 0.10
+        has_opaque_interior = has_opaque_interior or color.a > 0.99
+    assert(has_feathered_edge and has_opaque_interior)
+    candidate.free()
+    runtime.free()
 
 func _test_runtime_binding(catalog: PrototypeCatalog) -> void:
     var fixture := _load_json("res://data/fixtures/clearing_to_graveyard.json")
@@ -360,8 +501,12 @@ func _test_network_inside_and_houses_along(catalog: PrototypeCatalog) -> void:
     for instance in houses.instances:
         var transform: Transform3D = instance["transform"]
         var p := Vector2(transform.origin.x, transform.origin.z)
+        var nearest := backend.solver.nearest_point_on_network(p, road)
+        var direction_to_road := Vector3(nearest.x - p.x, 0.0, nearest.y - p.y).normalized()
         assert(Geometry2D.is_point_in_polygon(p, town.polygon))
-        assert(p.distance_to(backend.solver.nearest_point_on_network(p, road)) <= PlacementSolver.ALONG_THRESHOLD_M + 0.001)
+        assert(p.distance_to(nearest) <= PlacementSolver.ALONG_THRESHOLD_M + 0.001)
+        assert(p.distance_to(nearest) >= road.width * 0.5 + 5.0)
+        assert(transform.basis.z.normalized().dot(direction_to_road) >= cos(deg_to_rad(12.1)))
 
 func _test_along_preserves_other_relations(base_ir: Dictionary, catalog: PrototypeCatalog) -> void:
     var ir: Dictionary = base_ir.duplicate(true)
@@ -468,10 +613,15 @@ func _expected_density_count(
     density: String,
     usable_area: float
 ) -> int:
-    var prototype_id := catalog.choose_prototype(semantic_type)
-    var meta := catalog.get_metadata(prototype_id)
-    var footprint: Vector2 = meta["population_footprint"]
-    var spacing := float(meta["population_spacing"]) * float(DistributionLowerer.DENSITY_SPACING_MULTIPLIERS[density])
+    var footprint := Vector2.ZERO
+    var preferred_spacing := 0.0
+    for prototype_id in catalog.get_prototype_ids(semantic_type):
+        var meta := catalog.get_metadata(prototype_id)
+        var candidate_footprint: Vector2 = meta["population_footprint"]
+        footprint.x = maxf(footprint.x, candidate_footprint.x)
+        footprint.y = maxf(footprint.y, candidate_footprint.y)
+        preferred_spacing = maxf(preferred_spacing, float(meta["population_spacing"]))
+    var spacing := preferred_spacing * float(DistributionLowerer.DENSITY_SPACING_MULTIPLIERS[density])
     var area_per_instance := (
         (footprint.x + spacing)
         * (footprint.y + spacing)
@@ -491,3 +641,14 @@ func _polygon_aabb(poly: PackedVector2Array) -> Rect2:
         min_y = minf(min_y, p.y)
         max_y = maxf(max_y, p.y)
     return Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
+
+func _distance_to_polygon_edge(point: Vector2, polygon: PackedVector2Array) -> float:
+    var result := INF
+    for index in range(polygon.size()):
+        var closest := Geometry2D.get_closest_point_to_segment(
+            point,
+            polygon[index],
+            polygon[(index + 1) % polygon.size()]
+        )
+        result = minf(result, point.distance_to(closest))
+    return result

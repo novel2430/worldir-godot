@@ -1,0 +1,32 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototype/world_prototype.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/raw/kaykit/forest/Tree_3_A_Color1.gltf" id="2_model"]
+
+[sub_resource type="CapsuleShape3D" id="TrunkShape"]
+radius = 0.55
+height = 3.0
+
+[node name="Tree05" type="StaticBody3D"]
+script = ExtResource("1_script")
+prototype_id = "tree_05"
+semantic_type = "tree"
+placement_radius = 3.0
+clearance = 0.3
+population_spacing = 3.0
+population_occupancy_scale = 0.7
+population_scale_min = 0.9
+population_scale_max = 1.15
+population_landmark_chance = 0.08
+population_landmark_scale = 1.28
+
+[node name="VisualRoot" type="Node3D" parent="."]
+position = Vector3(0, 0.36, 0)
+scale = Vector3(1.35, 1.35, 1.35)
+
+[node name="Model" parent="VisualRoot" instance=ExtResource("2_model")]
+
+[node name="TrunkCollision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 2.0, 0)
+scale = Vector3(1.35, 1.35, 1.35)
+shape = SubResource("TrunkShape")
