@@ -124,6 +124,15 @@ func overlaps(p: Vector2, radius: float) -> bool:
             return true
     return false
 
+func overlaps_networks(p: Vector2, radius: float, networks: Array, extra_clearance: float = 0.0) -> bool:
+    for network: ResolvedNetwork in networks:
+        if network == null or network.curve_points.size() < 2:
+            continue
+        var required_distance := network.width * 0.5 + radius + extra_clearance
+        if p.distance_squared_to(nearest_point_on_network(p, network)) < required_distance * required_distance:
+            return true
+    return false
+
 func intersect_rect(a: Rect2, b: Rect2) -> Rect2:
     if not a.has_area() or not b.has_area():
         return Rect2()

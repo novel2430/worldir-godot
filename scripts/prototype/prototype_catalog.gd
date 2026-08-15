@@ -8,10 +8,31 @@ const PROTOTYPES := {
     "tree_04": "res://assets/prototypes/nature/tree_04.tscn",
     "tree_05": "res://assets/prototypes/nature/tree_05.tscn",
     "tree_06": "res://assets/prototypes/nature/tree_06.tscn",
+    "rock_01": "res://assets/prototypes/nature/rock_01.tscn",
+    "rock_02": "res://assets/prototypes/nature/rock_02.tscn",
+    "rock_03": "res://assets/prototypes/nature/rock_03.tscn",
+    "bush_01": "res://assets/prototypes/nature/bush_01.tscn",
+    "bush_02": "res://assets/prototypes/nature/bush_02.tscn",
+    "bush_03": "res://assets/prototypes/nature/bush_03.tscn",
+    "grass_01": "res://assets/prototypes/nature/grass_01.tscn",
+    "grass_02": "res://assets/prototypes/nature/grass_02.tscn",
+    "grass_03": "res://assets/prototypes/nature/grass_03.tscn",
+    "dead_tree_01": "res://assets/prototypes/nature/dead_tree_01.tscn",
+    "dead_tree_02": "res://assets/prototypes/nature/dead_tree_02.tscn",
     "house_01": "res://assets/prototypes/buildings/house_01.tscn",
     "house_02": "res://assets/prototypes/buildings/house_02.tscn",
     "church_01": "res://assets/prototypes/buildings/church_01.tscn",
     "tombstone_01": "res://assets/prototypes/tombstone_01.tscn",
+}
+
+# Backend-owned dressing assets are deliberately separate from World IR
+# semantic types. They share the same prototype, metadata and variation code,
+# but are never accepted as IR merely because Godot can render them.
+const DRESSING_TYPES := {
+    "rock": ["rock_01", "rock_02", "rock_03"],
+    "bush": ["bush_01", "bush_02", "bush_03"],
+    "grass": ["grass_01", "grass_02", "grass_03"],
+    "dead_tree": ["dead_tree_01", "dead_tree_02"],
 }
 
 const SEMANTIC_TYPES := {
@@ -44,6 +65,24 @@ func get_prototype_ids(semantic_type: String) -> Array[String]:
     for prototype_id in SEMANTIC_TYPES.get(semantic_type, []):
         result.append(String(prototype_id))
     return result
+
+func get_dressing_prototype_ids(decoration_type: String) -> Array[String]:
+    var result: Array[String] = []
+    for prototype_id in DRESSING_TYPES.get(decoration_type, []):
+        result.append(String(prototype_id))
+    return result
+
+func choose_population_variant(prototype_ids: Array[String], rng: RandomNumberGenerator) -> Dictionary:
+    if prototype_ids.is_empty():
+        return {}
+    var prototype_id := prototype_ids[rng.randi_range(0, prototype_ids.size() - 1)]
+    var meta := get_metadata(prototype_id)
+    var minimum_scale := float(meta.get("population_scale_min", 1.0))
+    var maximum_scale := maxf(minimum_scale, float(meta.get("population_scale_max", 1.0)))
+    var scale := rng.randf_range(minimum_scale, maximum_scale)
+    if rng.randf() < float(meta.get("population_landmark_chance", 0.0)):
+        scale *= float(meta.get("population_landmark_scale", 1.0))
+    return {"prototype_id": prototype_id, "scale": scale}
 
 func get_scene(prototype_id: String) -> PackedScene:
     if _scene_cache.has(prototype_id):

@@ -7,6 +7,7 @@ var regions: Array = []
 var networks: Array = []
 var entities: Array = []
 var distributions: Array = []
+var decorations: Array = []
 var warnings: PackedStringArray = PackedStringArray()
 var errors: PackedStringArray = PackedStringArray()
 
@@ -31,5 +32,11 @@ func find_entity(object_id: String) -> ResolvedEntity:
 func find_distribution(object_id: String) -> ResolvedDistribution:
     for item in distributions:
         if item.id == object_id:
+            return item
+    return null
+
+func find_decoration(decoration_id: String) -> ResolvedDecoration:
+    for item in decorations:
+        if item.id == decoration_id:
             return item
     return null

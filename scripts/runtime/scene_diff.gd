@@ -7,4 +7,5 @@ func summarize(old_world: ResolvedWorld, new_world: ResolvedWorld) -> Dictionary
         "networks": [old_world.networks.size() if old_world else 0, new_world.networks.size()],
         "entities": [old_world.entities.size() if old_world else 0, new_world.entities.size()],
         "distributions": [old_world.distributions.size() if old_world else 0, new_world.distributions.size()],
+        "decorations": [old_world.decorations.size() if old_world else 0, new_world.decorations.size()],
     }

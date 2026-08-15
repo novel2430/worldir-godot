@@ -5,6 +5,7 @@ var region_lowerer := RegionLowerer.new()
 var network_lowerer := NetworkLowerer.new()
 var entity_lowerer := EntityLowerer.new()
 var distribution_lowerer := DistributionLowerer.new()
+var forest_dresser := ForestDresser.new()
 var solver := PlacementSolver.new()
 
 func lower(
@@ -72,6 +73,11 @@ func lower(
 			continue
 		out.distributions.append(resolved)
 		context.distributions[resolved.id] = resolved
+
+	# Dressing is derived only after every explicit semantic object has claimed
+	# occupancy. It is backend-owned, best effort, and cannot fail World lowering.
+	if out.errors.is_empty():
+		forest_dresser.dress(out, catalog, solver)
 
 	return out
 

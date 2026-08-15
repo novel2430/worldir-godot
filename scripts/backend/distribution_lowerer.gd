@@ -142,16 +142,11 @@ func _choose_instance_variants(
 ) -> Dictionary:
 	var prototype_ids: Array[String] = []
 	var scales: Array[float] = []
+	var options := catalog.get_prototype_ids(semantic_type)
 	for _index in range(count):
-		var prototype_id := catalog.choose_prototype(semantic_type, rng)
-		var meta := catalog.get_metadata(prototype_id)
-		var minimum_scale := float(meta.get("population_scale_min", 1.0))
-		var maximum_scale := maxf(minimum_scale, float(meta.get("population_scale_max", 1.0)))
-		var scale := rng.randf_range(minimum_scale, maximum_scale)
-		if rng.randf() < float(meta.get("population_landmark_chance", 0.0)):
-			scale *= float(meta.get("population_landmark_scale", 1.0))
-		prototype_ids.append(prototype_id)
-		scales.append(scale)
+		var variant := catalog.choose_population_variant(options, rng)
+		prototype_ids.append(String(variant.get("prototype_id", "")))
+		scales.append(float(variant.get("scale", 1.0)))
 	return {"prototype_ids": prototype_ids, "scales": scales}
 
 func _resolve_count(

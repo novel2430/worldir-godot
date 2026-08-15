@@ -593,7 +593,8 @@ Resolved World
 4. Resolve Prototype Choices
 5. Resolve Entities
 6. Resolve Distributions
-7. Validate Resolved World
+7. Resolve Backend Dressing（best effort）
+8. Validate Resolved World
 ```
 
 原因：
@@ -607,6 +608,10 @@ Network
 
 Entity / Distribution
 → 经常依赖 Region / Network
+
+Forest Dressing 最后运行，因此 road、entity、house、tree 等显式语义已经先登记
+occupancy。Dressing 只能填充剩余空间，放不满时产生 warning，而不会让 World
+lowering 失败。
 ```
 
 例如：
@@ -740,9 +745,18 @@ ResolvedWorld
 │   ├── prototype_id
 │   └── transform
 │
-└── distributions[]
+├── distributions[]
     ├── id
     ├── semantic_type
+    └── instances[]
+        ├── id
+        ├── prototype_id
+        └── transform
+│
+└── decorations[]
+    ├── id
+    ├── region_id
+    ├── decoration_type
     └── instances[]
         ├── id
         ├── prototype_id
@@ -917,6 +931,22 @@ ResolvedDistribution
 instantiate prototype × N
 ```
 
+## 17.4 Backend Dressing
+
+```text
+Resolved Forest polygon
+↓
+ForestDresser（area budget + seeded sampling + shared occupancy）
+↓
+ResolvedDecoration
+↓
+instantiate backend-only prototype × N
+```
+
+`ResolvedDecoration` 不属于 World IR，也不会写回 Current IR。它与
+`ResolvedDistribution` 分开保存，使 Compiler 语义 population 与 Godot target-specific
+environment dressing 保持可辨识。
+
 一句话：
 
 > **Backend 算，Runtime 生。**
@@ -934,7 +964,8 @@ Main
 │   ├── Regions
 │   ├── Networks
 │   ├── Entities
-│   └── Distributions
+│   ├── Distributions
+│   └── Decorations
 │
 ├── Player
 │
@@ -959,7 +990,7 @@ WorldRoot
 ├── Entities
 │   └── Church
 │
-└── Distributions
+├── Distributions
     ├── Houses
     │   ├── House000
     │   ├── House001
@@ -969,6 +1000,12 @@ WorldRoot
         ├── Tree000
         ├── Tree001
         └── ...
+│
+└── Decorations
+    ├── BackendForestRock
+    ├── BackendForestBush
+    ├── BackendForestGrass
+    └── BackendForestDeadTree
 ```
 
 ---

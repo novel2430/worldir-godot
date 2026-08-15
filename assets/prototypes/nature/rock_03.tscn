@@ -1,0 +1,27 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototype/world_prototype.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/raw/kaykit/forest/Rock_3_A_Color1.gltf" id="2_model"]
+
+[sub_resource type="BoxShape3D" id="RockShape"]
+size = Vector3(1.25, 1, 1.05)
+
+[node name="Rock03" type="StaticBody3D"]
+script = ExtResource("1_script")
+prototype_id = "rock_03"
+semantic_type = "rock"
+placement_radius = 0.85
+clearance = 0.25
+population_occupancy_scale = 0.9
+population_scale_min = 0.8
+population_scale_max = 1.18
+
+[node name="VisualRoot" type="Node3D" parent="."]
+position = Vector3(0, 0.65, 0)
+scale = Vector3(1.4, 1.4, 1.4)
+
+[node name="Model" parent="VisualRoot" instance=ExtResource("2_model")]
+
+[node name="RockCollision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.55, 0)
+shape = SubResource("RockShape")

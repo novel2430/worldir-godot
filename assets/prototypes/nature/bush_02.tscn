@@ -1,0 +1,19 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototype/world_prototype.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/raw/kaykit/forest/Bush_2_A_Color1.gltf" id="2_model"]
+
+[node name="Bush02" type="StaticBody3D"]
+script = ExtResource("1_script")
+prototype_id = "bush_02"
+semantic_type = "bush"
+placement_radius = 0.8
+clearance = 0.15
+population_occupancy_scale = 0.65
+population_scale_min = 0.82
+population_scale_max = 1.18
+
+[node name="VisualRoot" type="Node3D" parent="."]
+scale = Vector3(2.5, 2.5, 2.5)
+
+[node name="Model" parent="VisualRoot" instance=ExtResource("2_model")]

@@ -1,0 +1,28 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototype/world_prototype.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/raw/kaykit/forest/Tree_Bare_1_A_Color1.gltf" id="2_model"]
+
+[sub_resource type="CapsuleShape3D" id="TrunkShape"]
+radius = 0.28
+height = 3.5
+
+[node name="DeadTree01" type="StaticBody3D"]
+script = ExtResource("1_script")
+prototype_id = "dead_tree_01"
+semantic_type = "dead_tree"
+placement_radius = 0.9
+clearance = 0.35
+population_occupancy_scale = 0.9
+population_scale_min = 0.9
+population_scale_max = 1.12
+
+[node name="VisualRoot" type="Node3D" parent="."]
+position = Vector3(0, 0.4, 0)
+scale = Vector3(1.5, 1.5, 1.5)
+
+[node name="Model" parent="VisualRoot" instance=ExtResource("2_model")]
+
+[node name="TrunkCollision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 1.75, 0)
+shape = SubResource("TrunkShape")

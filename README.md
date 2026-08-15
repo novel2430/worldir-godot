@@ -53,9 +53,9 @@ For a real tree:
 No placement/backend/runtime code needs to change.
 
 The current visual baseline uses CC0 KayKit Forest Nature models for six seeded tree
-variations and KayKit Medieval Hexagon models for two houses and one church. Only the
-referenced GLTF/BIN/shared texture files are stored under `assets/raw/kaykit/`; the
-corresponding license texts are kept beside them.
+variations plus small rock, bush, grass, and bare-tree dressing sets. KayKit Medieval
+Hexagon supplies two houses and one church. Only referenced GLTF/BIN/shared texture
+files are stored under `assets/raw/kaykit/`; license texts are kept beside them.
 
 ## Current V0 implementation
 
@@ -67,6 +67,7 @@ Implemented:
 - Procedural road/path lowering to deterministic polyline/ribbon geometry.
 - Prototype-aware Entity placement.
 - Distribution `count` / TSCN-footprint and usable-area-scaled qualitative `density` / `density_profile.gradient` weighted lowering.
+- Resolved-polygon Forest Dressing with area-scaled, seeded edge vegetation, clustered rocks/bushes, rare bare-tree accents, and shared occupancy avoidance.
 - `inside`, `near`, `far_from`, `along`, `direction_of` placement operators.
 - `random`, `uniform`, `clustered` arrangement.
 - Runtime Binding `at` / `inside` / `near` lowering through Godot-local spatial payloads.
@@ -77,7 +78,7 @@ Implemented:
 
 Deliberately still simple:
 
-- Region geometry is rectangular; no terrain solver.
+- Region geometry uses lightly irregular deterministic polygons and feathered surfaces; there is still no terrain solver.
 - Roads bend lightly but have no terrain-aware routing.
 - Density gradient uses qualitative weighted sampling; it is intentionally not a numeric density-field solver.
 - Scene transition is an atomic rebuild/swap extension point, not a visual dissolve/growth effect yet.
@@ -96,6 +97,8 @@ With Godot 4.7 available:
 ```bash
 godot --headless --path . --script tests/test_contract.gd
 godot --headless --path . --script tests/test_backend.gd
+godot --headless --path . --script tests/test_forest_dressing.gd
+godot --headless --path . --script tests/test_road_builder.gd
 ```
 
 ## Architecture invariants
@@ -107,6 +110,7 @@ godot --headless --path . --script tests/test_backend.gd
 - Runtime spatial payload never goes to the Compiler Server.
 - Compile response is a candidate until lowering + scene build succeeds.
 - Resolved World contains value data, never live Node references.
+- Backend-owned dressing remains separate from IR-owned Distributions and runs only after explicit semantics claim occupancy.
 
 ## Contract enforcement
 

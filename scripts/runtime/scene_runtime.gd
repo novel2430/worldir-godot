@@ -10,6 +10,7 @@ func build_candidate(resolved: ResolvedWorld, catalog: PrototypeCatalog) -> Node
     var networks := Node3D.new(); networks.name = "Networks"; root.add_child(networks)
     var entities := Node3D.new(); entities.name = "Entities"; root.add_child(entities)
     var distributions := Node3D.new(); distributions.name = "Distributions"; root.add_child(distributions)
+    var decorations := Node3D.new(); decorations.name = "Decorations"; root.add_child(decorations)
 
     for region in resolved.regions:
         regions.add_child(_build_region(region))
@@ -25,6 +26,15 @@ func build_candidate(resolved: ResolvedWorld, catalog: PrototypeCatalog) -> Node
     for distribution in resolved.distributions:
         var group := Node3D.new(); group.name = _safe_name(distribution.id); distributions.add_child(group)
         for instance_data in distribution.instances:
+            var node := _instantiate(String(instance_data.prototype_id), catalog)
+            if node == null:
+                root.free(); return null
+            node.name = _safe_name(String(instance_data.id))
+            node.transform = instance_data.transform
+            group.add_child(node)
+    for decoration in resolved.decorations:
+        var group := Node3D.new(); group.name = _safe_name(decoration.id); decorations.add_child(group)
+        for instance_data in decoration.instances:
             var node := _instantiate(String(instance_data.prototype_id), catalog)
             if node == null:
                 root.free(); return null
