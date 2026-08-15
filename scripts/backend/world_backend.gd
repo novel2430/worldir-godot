@@ -30,6 +30,7 @@ func lower(
 
 	var context := {
 		"regions": {},
+		"region_count": (world_ir.get("regions", []) as Array).size(),
 		"networks": {},
 		"entities": {},
 		"distributions": {},

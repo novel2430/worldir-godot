@@ -23,6 +23,7 @@ func _run() -> void:
         _test_world_conformance(first)
         _test_runtime_surface(first, catalog)
         _test_settlement_flattening(catalog)
+        _test_forest_relief(catalog)
     catalog.free()
     if failures == 0:
         print("Terrain and world-surface tests passed")
@@ -44,7 +45,7 @@ func _test_grid_and_determinism(first: ResolvedWorld, repeated: ResolvedWorld, d
         _expect(terrain.surface_masks[index].is_equal_approx(repeated.terrain.surface_masks[index]), "Same seed surface masks must be deterministic")
         differs_from_other_seed = differs_from_other_seed or not is_equal_approx(height, different_seed.terrain.heights[index])
     _expect(maximum - minimum > 1.5, "Macro terrain must be visibly non-flat")
-    _expect(minimum >= -2.801 and maximum <= 2.801, "V0 terrain relief must remain restrained")
+    _expect(minimum >= -TerrainResolverScript.FOREST_HEIGHT_LIMIT - 0.001 and maximum <= TerrainResolverScript.FOREST_HEIGHT_LIMIT + 0.001, "Forest relief must remain inside its restrained V0 limit")
     _expect(differs_from_other_seed, "Terrain macro shape must be seed-aware")
 
 func _test_surface_masks(world: ResolvedWorld) -> void:
@@ -154,6 +155,29 @@ func _test_settlement_flattening(catalog: PrototypeCatalog) -> void:
             village_samples.append(village.terrain.heights[index])
     _expect(village_samples.size() > 20, "Village mask must expose a stable interior sample")
     _expect(_standard_deviation(village_samples) < _standard_deviation(natural_samples) * 0.45, "Village influence must substantially calm local terrain")
+
+func _test_forest_relief(catalog: PrototypeCatalog) -> void:
+    var binding := [{"ir_object_id": "region", "runtime_fact_id": "area", "placement": "inside"}]
+    var payloads := {"area": {"aabb2": {"x": -48.0, "z": -48.0, "w": 96.0, "d": 96.0}}}
+    var forest_ir := {
+        "regions": [{"id": "region", "type": "forest"}],
+        "networks": [], "entities": [], "distributions": [],
+    }
+    var field_ir := {
+        "regions": [{"id": "region", "type": "field"}],
+        "networks": [], "entities": [], "distributions": [],
+    }
+    var forest := WorldBackend.new().lower(forest_ir, catalog, 808, binding, payloads)
+    var field := WorldBackend.new().lower(field_ir, catalog, 808, binding, payloads)
+    _expect(forest.errors.is_empty() and field.errors.is_empty(), "Forest relief comparison worlds must lower")
+    var forest_samples := PackedFloat32Array()
+    var field_samples := PackedFloat32Array()
+    for index in range(forest.terrain.heights.size()):
+        if forest.terrain.surface_masks[index].r > 0.9:
+            forest_samples.append(forest.terrain.heights[index])
+            field_samples.append(field.terrain.heights[index])
+    _expect(forest_samples.size() > 100, "Forest relief comparison needs a stable interior sample")
+    _expect(_standard_deviation(forest_samples) > _standard_deviation(field_samples) * 1.18, "Forest terrain must be noticeably more varied than an equivalent Field")
 
 func _standard_deviation(values: PackedFloat32Array) -> float:
     if values.is_empty():

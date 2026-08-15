@@ -78,6 +78,9 @@ func _test_runtime(world: ResolvedWorld, catalog: PrototypeCatalog) -> void:
         var foam := water_root.get_node("ShoreFoam") as MeshInstance3D
         _expect(water_mesh.mesh.get_faces().size() > 1000, "Water surface must be subdivided enough for restrained vertex waves")
         _expect(water_mesh.material_override is ShaderMaterial, "Water must use the stylized water shader")
+        var water_shader_code := (water_mesh.material_override as ShaderMaterial).shader.code
+        _expect("moving_ripple" in water_shader_code and "TIME" in water_shader_code, "Water color variation must visibly animate")
+        _expect("NORMAL =" in water_shader_code and "fresnel" in water_shader_code, "Water must vary lighting through wave normals and view angle")
         _expect(foam.material_override is ShaderMaterial and not foam.mesh.get_faces().is_empty(), "Shoreline must include a procedural foam strip")
         _expect(water_mesh.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "Water must not cast a solid plane shadow")
     candidate.free()

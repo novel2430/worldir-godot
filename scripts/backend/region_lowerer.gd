@@ -46,6 +46,14 @@ func lower(
         out.surface_kind = out.semantic_type
         return out
 
+    if _is_single_unconstrained_region(placement, context):
+        # Missing placement is legal World IR. For the one-Region V0 case, the
+        # backend realizes that unconstrained semantic area as the playable world.
+        # This writes only Resolved geometry; the input item/placement is untouched.
+        out.polygon = _rect_polygon(solver.world_bounds)
+        out.surface_kind = out.semantic_type
+        return out
+
     var rect: Rect2 = _resolve_semantic_rect(out.semantic_type, placement, solver, context)
     if not rect.has_area():
         last_error = "Placement failed for Region '%s': no geometry satisfies all placement constraints" % out.id
@@ -74,6 +82,13 @@ func lower(
 
     out.surface_kind = out.semantic_type
     return out
+
+func _is_single_unconstrained_region(placement: Dictionary, context: Dictionary) -> bool:
+    if int(context.get("region_count", 0)) != 1:
+        return false
+    var anchor := String(placement.get("anchor", "")).strip_edges()
+    var relations: Array = placement.get("relations", [])
+    return anchor.is_empty() and relations.is_empty()
 
 func _resolve_semantic_rect(
     semantic_type: String,

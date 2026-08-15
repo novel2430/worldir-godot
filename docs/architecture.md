@@ -969,6 +969,10 @@ instantiate backend-only prototype × N
 `ResolvedDistribution` 分开保存，使 Compiler 语义 population 与 Godot target-specific
 environment dressing 保持可辨识。
 
+Forest Region 同时作为 Terrain realization influence：内部增加 seeded 低频丘陵与
+中频起伏，边缘按 resolved forest mask 平滑消散。Road grading 与 building pad 在其后
+执行，因此显式道路和建筑仍然优先保持可用地形。
+
 一句话：
 
 > **Backend 算，Runtime 生。**

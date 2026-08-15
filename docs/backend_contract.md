@@ -40,6 +40,8 @@ No live `Node`, `RID`, `MeshInstance3D`, or `CollisionObject3D` reference belong
 
 Prototype radius + clearance participates in occupancy checks. Region and road spatial occupation come from resolved polygon / curve+width rather than guessed object footprints.
 
+When the world contains exactly one Region and that Region has neither an anchor nor placement relations, V0 resolves its polygon to the playable world bounds. This is a backend-only spatial fallback: it does not mutate World IR, and it is not applied to unconstrained Regions in multi-Region worlds.
+
 ## Runtime boundary
 
 `SceneRuntime` consumes only Resolved World and Prototype Catalog. It does not parse `near`, `inside`, `along`, or other World IR semantics.

@@ -15,6 +15,9 @@ const BUILDING_PATH_MAX_LENGTH_M := 26.0
 const COAST_LAND_BLEND_M := 12.0
 const COAST_WET_SAND_M := 4.5
 const COAST_UNDERWATER_SLOPE := 0.035
+const BASE_HEIGHT_LIMIT := 2.8
+const FOREST_HEIGHT_LIMIT := 3.55
+const FOREST_RELIEF_STRENGTH := 0.78
 
 func resolve(world: ResolvedWorld, catalog: PrototypeCatalog) -> Resource:
     var terrain: Resource = ResolvedTerrainResource.new()
@@ -99,6 +102,17 @@ func _environment_height(point: Vector2, world: ResolvedWorld, masks: Color) -> 
     )
     var height := broad + detail
 
+    # Forest keeps the shared macro landform, then adds a slower rolling ridge
+    # and amplifies some mid-frequency variation. The resolved forest mask
+    # feathers this personality at the Region edge; roads and building pads are
+    # graded afterward and therefore remain usable inside a hilly forest.
+    var forest_relief := (
+        sin(point.x * 0.041 + point.y * 0.026 + phase * 0.61) * 0.56
+        + cos(point.x * 0.019 - point.y * 0.044 - phase * 1.23) * 0.42
+        + detail * 0.48
+    )
+    height += forest_relief * masks.r * FOREST_RELIEF_STRENGTH
+
     # Region personality belongs to the terrain realization. Local road and
     # building grading is applied in separate passes so it can use their true
     # resolved geometry instead of treating the dirt-color mask as elevation.
@@ -111,7 +125,8 @@ func _environment_height(point: Vector2, world: ResolvedWorld, masks: Color) -> 
         var center := _polygon_center(region.polygon)
         var target := _macro_height(center, world.seed)
         height = lerpf(height, target, influence * 0.82)
-    return clampf(height, -2.8, 2.8)
+    var height_limit := lerpf(BASE_HEIGHT_LIMIT, FOREST_HEIGHT_LIMIT, masks.r)
+    return clampf(height, -height_limit, height_limit)
 
 func _shape_coasts(point: Vector2, height: float, world: ResolvedWorld) -> float:
     var result := height
@@ -131,7 +146,7 @@ func _shape_coasts(point: Vector2, height: float, world: ResolvedWorld) -> float
         else:
             target = water.sea_level - 0.14 - minf(distance * COAST_UNDERWATER_SLOPE, 1.8)
         result = lerpf(result, target, influence)
-    return clampf(result, -2.8, 2.8)
+    return clampf(result, -FOREST_HEIGHT_LIMIT, FOREST_HEIGHT_LIMIT)
 
 func _shore_wetness(point: Vector2, world: ResolvedWorld) -> float:
     var result := 0.0

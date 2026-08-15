@@ -64,10 +64,11 @@ Implemented:
 - Strict World IR V2 / Runtime Context V1 / CompileResult V1 contract validation at the Compiler boundary.
 - World IR V2 root primitives: Region / Network / Entity / Distribution.
 - Region anchor lowering to concrete polygons.
+- A single Region with no anchor or relations falls back to the full playable-world domain; multi-Region worlds keep normal constrained lowering.
 - Procedural road/path lowering to deterministic polyline/ribbon geometry.
-- Deterministic low-frequency macro terrain with forest/settlement/coast/road/building surface influences.
+- Deterministic low-frequency macro terrain with stronger rolling Forest relief, calmer settlements, graded roads/building pads, and shaped coast profiles.
 - One stylized world-surface shader blending meadow, forest floor, packed dirt, sand, and road dirt without photographic PBR textures.
-- Boundary-touching Coast Regions resolve into deterministic shoreline geometry, submerged terrain, wet sand, foam, and a lightweight stylized ocean surface.
+- Boundary-touching Coast Regions resolve into deterministic shoreline geometry, submerged terrain, wet sand, foam, and a lightweight stylized ocean surface with animated wave normals and color bands.
 - Prototype-aware Entity placement.
 - Distribution `count` / TSCN-footprint and usable-area-scaled qualitative `density` / `density_profile.gradient` weighted lowering.
 - Resolved-polygon Forest Dressing with area-scaled, seeded edge vegetation, clustered rocks/bushes, rare bare-tree accents, and shared occupancy avoidance.
@@ -120,6 +121,7 @@ godot --headless --path . --script tests/test_coast_water.gd
 - Resolved Terrain is backend value data; Runtime renders its heights and RGBA surface masks without re-reading World IR.
 - Resolved Water is backend value data derived from a boundary-touching resolved Coast polygon; it never becomes a World IR object.
 - Backend-owned dressing remains separate from IR-owned Distributions and runs only after explicit semantics claim occupancy.
+- Single-unconstrained-Region fallback exists only in Resolved geometry and never writes a synthetic placement back into World IR.
 
 ## Contract enforcement
 

@@ -304,19 +304,35 @@ varying vec3 world_position;
 
 void vertex() {
     vec3 source_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-    float wave = sin(source_world.x * 0.13 + TIME * 0.55) * 0.032;
-    wave += sin(source_world.z * 0.17 - TIME * 0.43) * 0.024;
+    float phase_a = source_world.x * 0.14 + TIME * 0.65;
+    float phase_b = source_world.z * 0.18 - TIME * 0.50;
+    float phase_c = (source_world.x + source_world.z) * 0.095 + TIME * 0.38;
+    float wave = sin(phase_a) * 0.055;
+    wave += sin(phase_b) * 0.042;
+    wave += sin(phase_c) * 0.025;
     VERTEX.y += wave;
+    float slope_x = cos(phase_a) * 0.055 * 0.14 + cos(phase_c) * 0.025 * 0.095;
+    float slope_z = cos(phase_b) * 0.042 * 0.18 + cos(phase_c) * 0.025 * 0.095;
+    NORMAL = normalize(vec3(-slope_x, 1.0, -slope_z));
     world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
     float variation = sin(world_position.x * 0.08 + world_position.z * 0.055) * 0.5 + 0.5;
+    float moving_ripple = sin(world_position.x * 0.26 + world_position.z * 0.11 + TIME * 0.90) * 0.56;
+    moving_ripple += sin(-world_position.x * 0.08 + world_position.z * 0.31 - TIME * 0.72) * 0.44;
+    float crest = smoothstep(0.38, 0.88, moving_ripple);
+    float trough = smoothstep(0.42, 0.92, -moving_ripple);
+    float fresnel = pow(1.0 - max(dot(normalize(NORMAL), normalize(VIEW)), 0.0), 3.0);
     vec3 deep_water = mix(vec3(0.045, 0.235, 0.34), vec3(0.06, 0.315, 0.39), variation);
     vec3 shallow_water = vec3(0.16, 0.47, 0.46);
-    ALBEDO = mix(deep_water, shallow_water, COLOR.r * 0.72);
-    ROUGHNESS = 0.72;
-    SPECULAR = 0.28;
+    vec3 surface = mix(deep_water, shallow_water, COLOR.r * 0.72);
+    surface *= mix(1.0, 1.16, crest);
+    surface *= mix(1.0, 0.90, trough);
+    surface = mix(surface, vec3(0.20, 0.48, 0.50), fresnel * 0.22);
+    ALBEDO = surface;
+    ROUGHNESS = mix(0.66, 0.49, crest);
+    SPECULAR = 0.36;
 }
 """
     var material := ShaderMaterial.new()

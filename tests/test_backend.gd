@@ -29,6 +29,7 @@ func _init() -> void:
     _test_runtime_instantiates_catalog_assets(resolved, catalog)
     _test_runtime_binding(catalog)
     _test_forest_has_no_implicit_trees(catalog)
+    _test_single_unconstrained_region_fallback(catalog)
     _test_anchor_inside_conjunction(catalog)
     _test_large_scale_region_realization(catalog)
     _test_network_placement_relations(catalog)
@@ -289,6 +290,81 @@ func _test_forest_has_no_implicit_trees(catalog: PrototypeCatalog) -> void:
     assert(resolved.errors.is_empty())
     assert(resolved.find_region("forest") != null)
     assert(resolved.distributions.is_empty())
+
+
+func _test_single_unconstrained_region_fallback(catalog: PrototypeCatalog) -> void:
+    var ir := {
+        "regions": [{"id": "forest", "type": "forest"}],
+        "networks": [],
+        "entities": [],
+        "distributions": [{
+            "id": "trees",
+            "type": "tree",
+            "placement": {"relations": [{"type": "inside", "target": "forest"}]},
+            "population": {"amount": {"mode": "density", "value": "medium"}},
+        }],
+    }
+    var source_before := JSON.stringify(ir)
+    assert(ContractValidatorScript.new().validate_world_ir(ir).is_empty())
+    var first := WorldBackend.new().lower(ir, catalog, 7013)
+    var second := WorldBackend.new().lower(ir, catalog, 7013)
+    assert(first.errors.is_empty() and second.errors.is_empty())
+    assert(JSON.stringify(ir) == source_before)
+
+    var forest: ResolvedRegion = first.find_region("forest")
+    var repeated_forest: ResolvedRegion = second.find_region("forest")
+    assert(forest != null and repeated_forest != null)
+    assert(forest.polygon.size() == 4)
+    assert(_polygon_aabb(forest.polygon).is_equal_approx(first.world_bounds))
+    assert(forest.polygon == repeated_forest.polygon)
+
+    var trees: ResolvedDistribution = first.find_distribution("trees")
+    var repeated_trees: ResolvedDistribution = second.find_distribution("trees")
+    assert(trees != null and repeated_trees != null)
+    assert(not trees.instances.is_empty())
+    assert(trees.instances.size() == _expected_density_count(
+        catalog,
+        "tree",
+        "medium",
+        first.world_bounds.get_area()
+    ))
+    assert(trees.instances.size() == repeated_trees.instances.size())
+    for index in range(trees.instances.size()):
+        var item: Dictionary = trees.instances[index]
+        var repeated_item: Dictionary = repeated_trees.instances[index]
+        var transform: Transform3D = item["transform"]
+        assert(Geometry2D.is_point_in_polygon(
+            Vector2(transform.origin.x, transform.origin.z),
+            forest.polygon
+        ))
+        assert(item["prototype_id"] == repeated_item["prototype_id"])
+        assert(transform.is_equal_approx(repeated_item["transform"] as Transform3D))
+
+    assert(first.terrain != null)
+    assert(first.terrain.world_bounds.is_equal_approx(first.world_bounds))
+    assert(first.terrain.sample_surface_mask(first.world_bounds.get_center()).r > 0.9)
+    assert(not first.decorations.is_empty())
+    for decoration: ResolvedDecoration in first.decorations:
+        assert(decoration.region_id == forest.id)
+        for item in decoration.instances:
+            var origin: Vector3 = (item["transform"] as Transform3D).origin
+            assert(Geometry2D.is_point_in_polygon(Vector2(origin.x, origin.z), forest.polygon))
+
+    # The fallback is deliberately not generalized to every unplaced Region.
+    var multi_region_ir := {
+        "regions": [
+            {"id": "unconstrained_forest", "type": "forest"},
+            {"id": "field", "type": "field", "placement": {"anchor": "east"}},
+        ],
+        "networks": [],
+        "entities": [],
+        "distributions": [],
+    }
+    var multi := WorldBackend.new().lower(multi_region_ir, catalog, 7013)
+    assert(multi.errors.is_empty())
+    var multi_forest: ResolvedRegion = multi.find_region("unconstrained_forest")
+    assert(multi_forest != null)
+    assert(not _polygon_aabb(multi_forest.polygon).is_equal_approx(multi.world_bounds))
 
 
 func _test_anchor_inside_conjunction(catalog: PrototypeCatalog) -> void:
