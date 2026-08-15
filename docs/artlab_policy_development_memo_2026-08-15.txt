@@ -1,16 +1,19 @@
-WorldIR Godot V1-A / ArtLab Policy 开发备忘
+WorldIR Godot V1-A/V1-B / ArtLab Policy 开发备忘
 日期：2026-08-15（Asia/Shanghai）
 
 一、版本与定位
 
-- 分支：codex/v1-a-chunk-streaming-generation
-- 原始开发基线：1372c875397ff1f829daa50277182caf6f9b05cf
-- 当前本地基线提交：a22d64c（feat: apply ArtLab realization policy to chunk generation）
+- 当前集成分支：codex/to-v1-b-artlab-policy
+- 原始 V1-A 开发基线：1372c875397ff1f829daa50277182caf6f9b05cf
+- V1-B 主线基准：to-V1-B @ 575b7bceccce8c5b660d235f877c86d39098f7a4
+- 原始 V1-A ArtLab 提交：a22d64c
+- 当前 V1-B ArtLab 移植提交：b61b816
 - 当前提交为本地提交，尚未推送远端。
 - ArtLab 是参数化生成实验沙盒，不是 V1-A 主项目的一部分。
-- 本轮工作的目标是把 ArtLab 已验证的生成经验沉淀为 V1-A Backend 自有的
-  Realization Policy，帮助现有合法 World IR 更好地生成和描述世界，而不是合并
-  两个项目。
+- 本轮工作的目标是把 ArtLab 已验证的生成经验沉淀为 V1-A/V1-B 集成项目 Backend
+  自有的 Realization Policy，帮助现有合法 World IR 更好地生成和描述世界，而不是
+  合并两个项目。移植以 to-V1-B 为准，不倒灌或覆盖 V1-B 的 revision/rebase/
+  transition 实现。
 
 二、不可破坏的边界
 
@@ -87,7 +90,10 @@ WorldIR Godot V1-A / ArtLab Policy 开发备忘
   README。
 - 增加 Policy 单元/边界测试、forest dressing 回归和 coastal town 依赖闭包回归。
 - Windows 真实引擎：Godot 4.7.1 stable，RTX 5070，OpenGL Compatibility。
-- 完整测试结果：21/21 通过。
+- 原始 V1-A ArtLab 完整测试结果：21/21 通过。
+- 移植到 to-V1-B 后的完整测试结果：30/30 通过，包含 V1-B revision kernel、
+  current-chunk transaction、boundary blend、Preview scheduler、transition modes 和
+  Step 5 end-to-end。
 - Chunk 依赖闭包增强用例单独复测通过。
 - 真实 3x3 活动窗口生成成功：9 个 active chunks。
 - 当次统计：1 个 entity、802 个显式 distribution instances、669 个 decorations；
@@ -99,7 +105,8 @@ WorldIR Godot V1-A / ArtLab Policy 开发备忘
 
 四、当前结论
 
-- ArtLab 经验已经以 Backend-owned、可配置、确定性的方式进入 V1-A。
+- ArtLab 经验已经以 Backend-owned、可配置、确定性的方式进入以 to-V1-B 为准的
+  V1-A/V1-B 集成项目。
 - 当前接入改善的是“同一合法 World IR 如何被实现”，不是扩展“World IR 能表达什么”。
 - 已落地部分不要求修改任何对外输入、输出、接口或协议。
 - 已修复旧策略在 Chunk-local interpretation 中制造悬空语义依赖的问题；ArtLab
@@ -186,6 +193,8 @@ P2 — Policy 工具化（仍保持内部）
 
 九、恢复点
 
-- 如需回看接入前状态：1372c875397ff1f829daa50277182caf6f9b05cf
-- 如需回看本轮接入后的本地基线：a22d64c
+- 如需回看原始 V1-A 接入前状态：1372c875397ff1f829daa50277182caf6f9b05cf
+- 如需回看未接入 ArtLab 的最新 V1-B 状态：575b7bceccce8c5b660d235f877c86d39098f7a4
+- 如需回看原始 V1-A ArtLab 实现：a22d64c
+- 如需回看移植到 V1-B 后的 ArtLab 实现：b61b816
 - 不建议用破坏性 reset；优先新建分支、使用 git show/diff 或 revert。

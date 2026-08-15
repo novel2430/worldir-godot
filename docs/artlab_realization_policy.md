@@ -1,9 +1,16 @@
 # ArtLab Realization Policy
 
-This document records how validated ArtLab generation findings enter the V1-A
-Backend without becoming World IR or changing the Compiler/Runtime contracts.
+This document records how validated ArtLab generation findings enter the
+V1-A/V1-B integrated Backend without becoming World IR or changing the
+Compiler/Runtime contracts.
 
-Implementation baseline: `1372c875397ff1f829daa50277182caf6f9b05cf`.
+Original V1-A implementation baseline:
+`1372c875397ff1f829daa50277182caf6f9b05cf`.
+
+V1-B integration baseline: `to-V1-B` at
+`575b7bceccce8c5b660d235f877c86d39098f7a4`; the transplanted ArtLab
+implementation commit is `b61b816`. V1-B's revision/rebase/transition behavior
+remains authoritative and unchanged.
 
 ## Boundary
 
@@ -99,7 +106,17 @@ godot --headless --path . --script tests/test_forest_dressing.gd
 godot --headless --path . --script tests/test_terrain_surface.gd
 godot --headless --path . --script tests/test_chunk_generation.gd
 godot --headless --path . --script tests/test_chunk_manager.gd
+godot --headless --path . --script tests/test_current_chunk_revision_real_a.gd
+godot --headless --path . --script tests/test_current_chunk_revision_transaction.gd
+godot --headless --path . --script tests/test_revision_boundary_blend.gd
+godot --headless --path . --script tests/test_step5_end_to_end.gd
+godot --headless --path . --script tests/test_step5_real_preview_scheduler.gd
+godot --headless --path . --script tests/test_step5_transition_modes.gd
 ```
 
 `test_realization_policy.gd` also guards the negative boundary: adding an
 `environment` root to World IR must remain invalid.
+
+The integrated branch was verified on Windows with Godot 4.7.1: all 30 test
+scripts passed, followed by a six-view graphical capture on an RTX 5070 using
+the OpenGL Compatibility renderer.
