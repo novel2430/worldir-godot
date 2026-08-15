@@ -218,6 +218,7 @@ P2 — Policy 工具化（仍保持内部）
 
 - Policy 配置：data/configs/artlab_realization_policy.json
 - Policy 说明：docs/artlab_realization_policy.md
+- 移植/契约变更交接：docs/artlab_policy_migration_contract_handoff.md
 - Policy 加载：scripts/backend/realization_policy.gd
 - Terrain 实现：scripts/backend/terrain_resolver.gd
 - Dressing 实现：scripts/backend/forest_dresser.gd

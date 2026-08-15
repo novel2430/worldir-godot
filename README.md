@@ -121,6 +121,10 @@ functional defect is being hidden by the deferral. Existing pre-integration evid
 30/30 real-engine tests plus the six-view graphical capture documented in
 `docs/artlab_policy_development_memo_2026-08-15.txt`.
 
+The [colleague-facing migration and contract handoff](docs/artlab_policy_migration_contract_handoff.md)
+separates completed Backend-owned Policy work from capabilities that require a
+deliberate World IR, Resolved data, World Catalog, or cross-Chunk protocol revision.
+
 Without Godot installed:
 
 ```bash

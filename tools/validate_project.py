@@ -16,6 +16,7 @@ required = [
     "scripts/backend/coast_resolver.gd", "scripts/resolved/resolved_water.gd",
     "scripts/backend/forest_dresser.gd", "scripts/resolved/resolved_decoration.gd",
     "docs/artlab_realization_policy.md",
+    "docs/artlab_policy_migration_contract_handoff.md",
     "docs/artlab_realization_policy_schema.md",
     "docs/artlab_policy_changelog.md",
     "docs/artlab_visual_acceptance.md",
