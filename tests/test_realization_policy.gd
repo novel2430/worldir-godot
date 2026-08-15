@@ -5,6 +5,7 @@ const RealizationPolicyScript = preload("res://scripts/backend/realization_polic
 func _init() -> void:
     var policy: RefCounted = RealizationPolicyScript.new()
     _test_live_policy(policy)
+    _test_policy_loading_and_fallbacks(policy)
     _test_candidate_density_semantics(policy)
     _test_spatial_influences()
     _test_world_ir_contract_is_unchanged()
@@ -14,7 +15,13 @@ func _init() -> void:
 
 func _test_live_policy(policy: RefCounted) -> void:
     assert(policy.warnings.is_empty())
+    assert(policy.loaded_from_disk)
     assert(String(policy.get_value("format", "")) == RealizationPolicyScript.FORMAT)
+    assert(policy.fingerprint().length() == 64)
+    var diagnostics: Dictionary = policy.diagnostic_snapshot()
+    assert(int(diagnostics.format_version) == RealizationPolicyScript.FORMAT_VERSION)
+    assert(String(diagnostics.fingerprint) == policy.fingerprint())
+    assert(not diagnostics.has("values"))
     assert(bool(policy.get_value("source.world_ir_contract_unchanged", false)))
     assert(is_equal_approx(
         policy.number("terrain.geometry.forest_relief_strength", 0.0),
@@ -23,6 +30,68 @@ func _test_live_policy(policy: RefCounted) -> void:
     assert(policy.text("dressing.density_semantics", "").begins_with("candidate_placement"))
     var meadow: Color = policy.color("surface.palette.meadow_low", Color.BLACK)
     assert(meadow.is_equal_approx(Color(0.19, 0.245, 0.125)))
+
+func _test_policy_loading_and_fallbacks(default_policy: RefCounted) -> void:
+    var fixture_dir := "user://artlab_policy_fixtures"
+    DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(fixture_dir))
+
+    var missing_path := "%s/missing.json" % fixture_dir
+    var missing: RefCounted = RealizationPolicyScript.new(missing_path)
+    assert(not missing.loaded_from_disk)
+    assert(not missing.warnings.is_empty())
+    assert(missing.fingerprint() == RealizationPolicyScript.new("").fingerprint())
+
+    var malformed_path := "%s/malformed.json" % fixture_dir
+    _write_policy_fixture(malformed_path, "{not-json")
+    var malformed: RefCounted = RealizationPolicyScript.new(malformed_path)
+    assert(not malformed.loaded_from_disk)
+    assert(not malformed.warnings.is_empty())
+    assert(malformed.fingerprint() == RealizationPolicyScript.new("").fingerprint())
+
+    var unsupported_path := "%s/unsupported.json" % fixture_dir
+    _write_policy_fixture(unsupported_path, JSON.stringify({"format": "worldir-godot-artlab-realization-policy-v2"}))
+    var unsupported: RefCounted = RealizationPolicyScript.new(unsupported_path)
+    assert(not unsupported.loaded_from_disk)
+    assert("unsupported format" in String(unsupported.warnings[0]))
+    assert(unsupported.fingerprint() == RealizationPolicyScript.new("").fingerprint())
+
+    var wrong_type_path := "%s/wrong_type.json" % fixture_dir
+    _write_policy_fixture(wrong_type_path, JSON.stringify({
+        "format": RealizationPolicyScript.FORMAT,
+        "terrain": {"geometry": {"base_height_limit_m": "invalid"}},
+    }))
+    var wrong_type: RefCounted = RealizationPolicyScript.new(wrong_type_path)
+    assert(wrong_type.loaded_from_disk)
+    assert(not wrong_type.warnings.is_empty())
+    assert(is_equal_approx(
+        wrong_type.number("terrain.geometry.base_height_limit_m", -1.0),
+        RealizationPolicyScript.DEFAULT_VALUES.terrain.geometry.base_height_limit_m
+    ))
+
+    var partial_path := "%s/partial.json" % fixture_dir
+    _write_policy_fixture(partial_path, JSON.stringify({
+        "format": RealizationPolicyScript.FORMAT,
+        "terrain": {"geometry": {"base_height_limit_m": 4.25}},
+    }))
+    var partial: RefCounted = RealizationPolicyScript.new(partial_path)
+    assert(partial.loaded_from_disk)
+    assert(partial.warnings.is_empty())
+    assert(is_equal_approx(partial.number("terrain.geometry.base_height_limit_m", 0.0), 4.25))
+    assert(is_equal_approx(
+        partial.number("terrain.geometry.forest_relief_strength", 0.0),
+        default_policy.number("terrain.geometry.forest_relief_strength", -1.0)
+    ))
+    assert(partial.fingerprint() != default_policy.fingerprint())
+
+    for file_name in ["malformed.json", "unsupported.json", "wrong_type.json", "partial.json"]:
+        DirAccess.remove_absolute(ProjectSettings.globalize_path("%s/%s" % [fixture_dir, file_name]))
+    DirAccess.remove_absolute(ProjectSettings.globalize_path(fixture_dir))
+
+func _write_policy_fixture(path: String, contents: String) -> void:
+    var file := FileAccess.open(path, FileAccess.WRITE)
+    assert(file != null)
+    file.store_string(contents)
+    file.close()
 
 func _test_candidate_density_semantics(policy: RefCounted) -> void:
     var dresser := ForestDresser.new()

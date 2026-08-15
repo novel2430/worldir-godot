@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "worldir-godot-artlab-realization-policy-v1.schema.json",
+  "title": "WorldIR Godot ArtLab Realization Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "source", "terrain", "surface", "dressing"],
+  "properties": {
+    "format": {"const": "worldir-godot-artlab-realization-policy-v1"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "scope", "world_ir_contract_unchanged"],
+      "properties": {
+        "project": {"type": "string", "minLength": 1},
+        "scope": {"const": "backend_owned_realization_only"},
+        "world_ir_contract_unchanged": {"const": true}
+      }
+    },
+    "terrain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["region_roles", "geometry", "influences"],
+      "properties": {
+        "region_roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["forest_surface", "settlement_surface", "coast_surface"],
+          "properties": {
+            "forest_surface": {"$ref": "#/$defs/regionTypes"},
+            "settlement_surface": {"$ref": "#/$defs/regionTypes"},
+            "coast_surface": {"$ref": "#/$defs/regionTypes"}
+          }
+        },
+        "geometry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "base_height_limit_m", "forest_height_limit_m", "forest_relief_strength",
+            "settlement_flatten_strength", "broad_x_frequency", "broad_x_amplitude_m",
+            "broad_z_frequency", "broad_z_amplitude_m", "broad_diagonal_frequency",
+            "broad_diagonal_amplitude_m", "detail_x_frequency", "detail_z_frequency",
+            "detail_first_amplitude_m", "detail_second_x_frequency",
+            "detail_second_z_frequency", "detail_second_amplitude_m",
+            "forest_first_x_frequency", "forest_first_z_frequency",
+            "forest_first_amplitude_m", "forest_second_x_frequency",
+            "forest_second_z_frequency", "forest_second_amplitude_m",
+            "forest_detail_multiplier"
+          ],
+          "properties": {
+            "base_height_limit_m": {"$ref": "#/$defs/positive"},
+            "forest_height_limit_m": {"$ref": "#/$defs/positive"},
+            "forest_relief_strength": {"$ref": "#/$defs/probability"},
+            "settlement_flatten_strength": {"$ref": "#/$defs/probability"},
+            "broad_x_frequency": {"$ref": "#/$defs/positive"},
+            "broad_x_amplitude_m": {"$ref": "#/$defs/nonnegative"},
+            "broad_z_frequency": {"$ref": "#/$defs/positive"},
+            "broad_z_amplitude_m": {"$ref": "#/$defs/nonnegative"},
+            "broad_diagonal_frequency": {"$ref": "#/$defs/positive"},
+            "broad_diagonal_amplitude_m": {"$ref": "#/$defs/nonnegative"},
+            "detail_x_frequency": {"$ref": "#/$defs/positive"},
+            "detail_z_frequency": {"$ref": "#/$defs/positive"},
+            "detail_first_amplitude_m": {"$ref": "#/$defs/nonnegative"},
+            "detail_second_x_frequency": {"$ref": "#/$defs/positive"},
+            "detail_second_z_frequency": {"$ref": "#/$defs/positive"},
+            "detail_second_amplitude_m": {"$ref": "#/$defs/nonnegative"},
+            "forest_first_x_frequency": {"$ref": "#/$defs/positive"},
+            "forest_first_z_frequency": {"$ref": "#/$defs/positive"},
+            "forest_first_amplitude_m": {"$ref": "#/$defs/nonnegative"},
+            "forest_second_x_frequency": {"$ref": "#/$defs/positive"},
+            "forest_second_z_frequency": {"$ref": "#/$defs/positive"},
+            "forest_second_amplitude_m": {"$ref": "#/$defs/nonnegative"},
+            "forest_detail_multiplier": {"$ref": "#/$defs/probability"}
+          }
+        },
+        "influences": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "region_outer_blend_m", "region_inner_blend_m", "road_shoulder_m",
+            "road_terrain_blend_m", "building_dirt_fade_m", "building_flatten_blend_m",
+            "building_path_max_length_m", "building_path_surface_inner_m",
+            "building_path_surface_outer_m", "coast_beach_blend_start_m",
+            "coast_beach_blend_end_m", "coast_land_blend_m", "coast_wet_sand_m",
+            "coast_underwater_slope", "coast_land_height_above_sea_m",
+            "coast_shore_height_offset_m", "coast_underwater_height_offset_m",
+            "coast_max_underwater_drop_m"
+          ],
+          "properties": {
+            "region_outer_blend_m": {"$ref": "#/$defs/nonnegative"},
+            "region_inner_blend_m": {"$ref": "#/$defs/nonnegative"},
+            "road_shoulder_m": {"$ref": "#/$defs/nonnegative"},
+            "road_terrain_blend_m": {"$ref": "#/$defs/nonnegative"},
+            "building_dirt_fade_m": {"$ref": "#/$defs/nonnegative"},
+            "building_flatten_blend_m": {"$ref": "#/$defs/nonnegative"},
+            "building_path_max_length_m": {"$ref": "#/$defs/nonnegative"},
+            "building_path_surface_inner_m": {"$ref": "#/$defs/nonnegative"},
+            "building_path_surface_outer_m": {"$ref": "#/$defs/nonnegative"},
+            "coast_beach_blend_start_m": {"type": "number"},
+            "coast_beach_blend_end_m": {"type": "number"},
+            "coast_land_blend_m": {"$ref": "#/$defs/positive"},
+            "coast_wet_sand_m": {"$ref": "#/$defs/positive"},
+            "coast_underwater_slope": {"$ref": "#/$defs/positive"},
+            "coast_land_height_above_sea_m": {"$ref": "#/$defs/nonnegative"},
+            "coast_shore_height_offset_m": {"type": "number"},
+            "coast_underwater_height_offset_m": {"type": "number"},
+            "coast_max_underwater_drop_m": {"$ref": "#/$defs/positive"}
+          }
+        }
+      }
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "palette", "forest_soil_patch_start", "forest_soil_patch_end",
+        "forest_soil_patch_strength", "settlement_blend_strength",
+        "wet_sand_blend_strength", "road_blend_strength", "variation_min",
+        "variation_max", "roughness", "specular"
+      ],
+      "properties": {
+        "palette": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "meadow_low", "meadow_high", "forest_green_low", "forest_green_high",
+            "forest_soil", "packed_dirt_low", "packed_dirt_high", "sand_low",
+            "sand_high", "wet_sand_low", "wet_sand_high", "road_dirt_low",
+            "road_dirt_high"
+          ],
+          "properties": {
+            "meadow_low": {"$ref": "#/$defs/color"},
+            "meadow_high": {"$ref": "#/$defs/color"},
+            "forest_green_low": {"$ref": "#/$defs/color"},
+            "forest_green_high": {"$ref": "#/$defs/color"},
+            "forest_soil": {"$ref": "#/$defs/color"},
+            "packed_dirt_low": {"$ref": "#/$defs/color"},
+            "packed_dirt_high": {"$ref": "#/$defs/color"},
+            "sand_low": {"$ref": "#/$defs/color"},
+            "sand_high": {"$ref": "#/$defs/color"},
+            "wet_sand_low": {"$ref": "#/$defs/color"},
+            "wet_sand_high": {"$ref": "#/$defs/color"},
+            "road_dirt_low": {"$ref": "#/$defs/color"},
+            "road_dirt_high": {"$ref": "#/$defs/color"}
+          }
+        },
+        "forest_soil_patch_start": {"$ref": "#/$defs/probability"},
+        "forest_soil_patch_end": {"$ref": "#/$defs/probability"},
+        "forest_soil_patch_strength": {"$ref": "#/$defs/probability"},
+        "settlement_blend_strength": {"$ref": "#/$defs/probability"},
+        "wet_sand_blend_strength": {"$ref": "#/$defs/probability"},
+        "road_blend_strength": {"$ref": "#/$defs/probability"},
+        "variation_min": {"$ref": "#/$defs/nonnegative"},
+        "variation_max": {"$ref": "#/$defs/nonnegative"},
+        "roughness": {"$ref": "#/$defs/probability"},
+        "specular": {"$ref": "#/$defs/probability"}
+      }
+    },
+    "dressing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "density_semantics", "region_types", "candidate_attempts",
+        "cluster_sample_probability", "cluster_center_attempts",
+        "cluster_center_minimum_separation_m", "cluster_separation_score_distance_m",
+        "cluster_profile_score_weight", "edge_profiles", "layers",
+        "building_clearing", "network_corridors"
+      ],
+      "properties": {
+        "density_semantics": {"const": "candidate_placement_times_acceptance_probability_times_spatial_influences"},
+        "region_types": {"$ref": "#/$defs/regionTypes"},
+        "candidate_attempts": {"type": "integer", "minimum": 1},
+        "cluster_sample_probability": {"$ref": "#/$defs/probability"},
+        "cluster_center_attempts": {"type": "integer", "minimum": 1},
+        "cluster_center_minimum_separation_m": {"$ref": "#/$defs/nonnegative"},
+        "cluster_separation_score_distance_m": {"$ref": "#/$defs/positive"},
+        "cluster_profile_score_weight": {"$ref": "#/$defs/probability"},
+        "edge_profiles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["edge", "interior", "mixed"],
+          "properties": {
+            "edge": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["minimum_multiplier", "outer_ramp_start_m", "outer_ramp_end_m", "interior_falloff_start_m", "interior_falloff_end_m"],
+              "properties": {
+                "minimum_multiplier": {"$ref": "#/$defs/probability"},
+                "outer_ramp_start_m": {"$ref": "#/$defs/nonnegative"},
+                "outer_ramp_end_m": {"$ref": "#/$defs/nonnegative"},
+                "interior_falloff_start_m": {"$ref": "#/$defs/nonnegative"},
+                "interior_falloff_end_m": {"$ref": "#/$defs/nonnegative"}
+              }
+            },
+            "interior": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["minimum_multiplier", "ramp_start_m", "ramp_end_m"],
+              "properties": {
+                "minimum_multiplier": {"$ref": "#/$defs/probability"},
+                "ramp_start_m": {"$ref": "#/$defs/nonnegative"},
+                "ramp_end_m": {"$ref": "#/$defs/nonnegative"}
+              }
+            },
+            "mixed": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["minimum_multiplier", "falloff_start_m", "falloff_end_m"],
+              "properties": {
+                "minimum_multiplier": {"$ref": "#/$defs/probability"},
+                "falloff_start_m": {"$ref": "#/$defs/nonnegative"},
+                "falloff_end_m": {"$ref": "#/$defs/nonnegative"}
+              }
+            }
+          }
+        },
+        "layers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dead_tree", "rock", "bush", "grass"],
+          "properties": {
+            "dead_tree": {"$ref": "#/$defs/layer"},
+            "rock": {"$ref": "#/$defs/layer"},
+            "bush": {"$ref": "#/$defs/layer"},
+            "grass": {"$ref": "#/$defs/layer"}
+          }
+        },
+        "building_clearing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum_inner_radius_m", "minimum_outer_radius_m", "footprint_inner_scale", "footprint_outer_scale", "minimum_multiplier"],
+          "properties": {
+            "minimum_inner_radius_m": {"$ref": "#/$defs/positive"},
+            "minimum_outer_radius_m": {"$ref": "#/$defs/positive"},
+            "footprint_inner_scale": {"$ref": "#/$defs/positive"},
+            "footprint_outer_scale": {"$ref": "#/$defs/positive"},
+            "minimum_multiplier": {"$ref": "#/$defs/minimumMultipliers"}
+          }
+        },
+        "network_corridors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["road", "path"],
+          "properties": {
+            "road": {"$ref": "#/$defs/corridor"},
+            "path": {"$ref": "#/$defs/corridor"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "positive": {"type": "number", "exclusiveMinimum": 0},
+    "nonnegative": {"type": "number", "minimum": 0},
+    "probability": {"type": "number", "minimum": 0, "maximum": 1},
+    "color": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 4,
+      "items": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "regionTypes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["town", "village", "forest", "coast", "graveyard", "district", "field", "swamp"]}
+    },
+    "minimumMultipliers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dead_tree", "rock", "bush", "grass"],
+      "properties": {
+        "dead_tree": {"$ref": "#/$defs/probability"},
+        "rock": {"$ref": "#/$defs/probability"},
+        "bush": {"$ref": "#/$defs/probability"},
+        "grass": {"$ref": "#/$defs/probability"}
+      }
+    },
+    "layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_area_per_candidate_m2", "acceptance_probability", "legacy_area_per_instance_m2", "cap", "cluster_count", "cluster_radius_m", "edge_mode", "road_clearance_m"],
+      "properties": {
+        "target_area_per_candidate_m2": {"$ref": "#/$defs/positive"},
+        "acceptance_probability": {"$ref": "#/$defs/probability"},
+        "legacy_area_per_instance_m2": {"$ref": "#/$defs/positive"},
+        "cap": {"type": "integer", "minimum": 1},
+        "cluster_count": {"type": "integer", "minimum": 0},
+        "cluster_radius_m": {"$ref": "#/$defs/nonnegative"},
+        "edge_mode": {"enum": ["edge", "interior", "mixed"]},
+        "road_clearance_m": {"$ref": "#/$defs/nonnegative"}
+      }
+    },
+    "corridor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outer_extra_width_m", "minimum_multiplier"],
+      "properties": {
+        "outer_extra_width_m": {"$ref": "#/$defs/positive"},
+        "minimum_multiplier": {"$ref": "#/$defs/minimumMultipliers"}
+      }
+    }
+  }
+}

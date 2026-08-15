@@ -99,9 +99,13 @@ semantics.
 
 ## Verification
 
+The focused functional checks are:
+
 ```bash
 python3 tools/validate_project.py
 godot --headless --path . --script tests/test_realization_policy.gd
+godot --headless --path . --script tests/test_chunk_dependency_closure.gd
+godot --headless --path . --script tests/test_artlab_policy_determinism.gd
 godot --headless --path . --script tests/test_forest_dressing.gd
 godot --headless --path . --script tests/test_terrain_surface.gd
 godot --headless --path . --script tests/test_chunk_generation.gd
@@ -113,6 +117,12 @@ godot --headless --path . --script tests/test_step5_end_to_end.gd
 godot --headless --path . --script tests/test_step5_real_preview_scheduler.gd
 godot --headless --path . --script tests/test_step5_transition_modes.gd
 ```
+
+`tools/run_godot_tests.ps1` provides the complete Windows suite and a JSON report.
+The broader scenario matrix, long streaming path, quantitative visual calibration,
+multi-scenario graphical capture, and performance benchmark are intentionally tracked
+as post-publish validation in the development memo; they are not claimed as passing in
+the 2026-08-15 functional-first publish.
 
 `test_realization_policy.gd` also guards the negative boundary: adding an
 `environment` root to World IR must remain invalid.

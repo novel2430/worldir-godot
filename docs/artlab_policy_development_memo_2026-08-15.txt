@@ -8,7 +8,7 @@ WorldIR Godot V1-A/V1-B / ArtLab Policy 开发备忘
 - V1-B 主线基准：to-V1-B @ 575b7bceccce8c5b660d235f877c86d39098f7a4
 - 原始 V1-A ArtLab 提交：a22d64c
 - 当前 V1-B ArtLab 移植提交：b61b816
-- 当前提交为本地提交，尚未推送远端。
+- 当前集成成果发布目标为远端 to-V1-B；最终发布提交以该远端分支最新提交为准。
 - ArtLab 是参数化生成实验沙盒，不是 V1-A 主项目的一部分。
 - 本轮工作的目标是把 ArtLab 已验证的生成经验沉淀为 V1-A/V1-B 集成项目 Backend
   自有的 Realization Policy，帮助现有合法 World IR 更好地生成和描述世界，而不是
@@ -115,42 +115,79 @@ WorldIR Godot V1-A/V1-B / ArtLab Policy 开发备忘
 
 五、后续 TODO：不修改对外契约即可继续
 
+状态说明：本轮按“功能优先”发布。`[x]` 表示实现且已完成相应快速验证；`[~]` 表示
+实现/用例已进入仓库，但真实引擎扩展运行仍待补；`[ ]` 表示留待后续。性能优化和
+扩展稳定性不作为本次发布阻塞项。
+
 P0 — 回归与可维护性
 
-[ ] 为依赖闭包增加更小的专用测试文件，覆盖多级链、多个 target、topology via、
+[x] 为依赖闭包增加更小的专用测试文件，覆盖多级链、多个 target、topology via、
     density gradient selector 和互相引用，避免只依赖 coastal-town 综合用例。
-[ ] 增加“生成顺序不同但 Chunk 结果一致”的 Policy 确定性回归。
-[ ] 增加 Policy 缺失、JSON 损坏、字段类型错误、局部字段缺失的 fallback 测试。
-[ ] 明确 Policy format 版本升级规则和未知版本处理策略。
-[ ] 将真实 Godot 全套测试命令固化为一个可重复执行的本地脚本，并输出汇总报告。
+[x] 增加“生成顺序不同但 Chunk 结果一致”的 Policy 确定性回归。
+[x] 增加 Policy 缺失、JSON 损坏、字段类型错误、局部字段缺失的 fallback 测试。
+[x] 明确 Policy format 版本升级规则和未知版本处理策略，并增加 Policy fingerprint。
+[~] 已增加 tools/run_godot_tests.ps1，可枚举测试并输出 JSON 汇总；完整脚本运行待补。
 
 P1 — 视觉标定
 
-[ ] 用更多合法 World IR 场景标定 forest、settlement、coast、road 的组合表现，不只
+[~] 已增加 inland village、southern coast 两套合法 World IR fixture，以及五场景
+    矩阵测试/截图工具；完整矩阵运行和人工验收待补。
+[ ] 用更多合法 World IR 场景完成 forest、settlement、coast、road 的组合标定，不只
     使用当前 coastal-town 样例。
 [ ] 调整森林边缘 profile，使近边界层次更明显，同时避免草/灌木在道路旁形成硬线。
 [ ] 继续标定建筑 clearing：分别覆盖小屋、长屋和大 footprint 建筑。
 [ ] 标定 coast 的沙滩宽度、湿沙过渡和水下坡度，覆盖不同 coast mask 形状。
 [ ] 为每次参数调整保留同 seed、同相机、同 IR 的 before/after 截图和实例统计。
-[ ] 建立轻量视觉验收清单：Chunk seam、道路净距、建筑入口、海岸水线、重复图案、
+[x] 已建立 docs/artlab_visual_acceptance.md 轻量视觉验收清单：Chunk seam、道路
+    净距、建筑入口、海岸水线、重复图案、
     漂浮/穿插对象。
 
 P1 — 性能与规模
+
+本节按 2026-08-15 的功能优先决策整体后移；仓库中仅保留测试/采样工具骨架，不把
+未运行的数据写成性能结论。
 
 [ ] 在 Windows 真机记录初始 3x3、单 Chunk revision 和 streaming 移动时的 CPU
     时间、帧耗时、实例数量与峰值内存。
 [ ] 检查高密度 dressing 下 shared occupancy 查询成本，并在不改变 identity 的前提
     下优化热点。
-[ ] 验证更远 streaming 路径中的生成顺序独立性、历史 Chunk preserve 和 seam 表现。
+[~] 已增加远距离 streaming 路径、历史 Chunk restore 和 seam 的扩展用例，真实引擎
+    完整运行待补。
 
 P2 — Policy 工具化（仍保持内部）
 
-[ ] 增加只读 Policy dump/诊断输出，说明每个 Chunk/位置最终命中的 Region role、
+[~] 已增加只读 Policy dump/诊断输出，说明每个 Chunk/位置最终命中的 Region role、
     layer 和 influence，便于调参排查。
-[ ] 增加配置 schema/字段说明，注明单位、合法范围、默认值和影响范围。
-[ ] 评估开发环境中的 Policy 热重载；若实现，必须保证正式生成仍绑定明确的 Policy
-    版本，避免 Same Inputs 随磁盘状态漂移。
-[ ] 将 ArtLab 的实验记录整理为参数变更日志，区分“观察”“假设”“已验证规律”。
+[x] 增加配置 JSON Schema/字段说明，注明单位、合法范围、默认值和影响范围。
+[x] 已评估开发环境 Policy 热重载：当前不实现。生成固定绑定加载时的 Policy
+    fingerprint，避免 Same Inputs 随磁盘状态漂移。
+[x] 已将 ArtLab 实验记录整理为参数变更日志，区分“观察”“假设”“已验证规律”。
+
+五（附）、本次功能优先发布的验证状态（2026-08-15）
+
+已通过（Windows Godot 4.7.1 真实引擎）：
+
+- tests/test_realization_policy.gd
+- tests/test_chunk_dependency_closure.gd
+- tests/test_artlab_policy_determinism.gd
+
+已通过（本机快速校验）：
+
+- python3 tools/validate_project.py
+- git diff --check
+- Policy/config/fixture JSON 解析
+
+按用户要求不阻塞发布、明确留待后续：
+
+- tests/test_artlab_scenario_matrix.gd（25 次完整 Chunk 生成，运行中未见脚本错误，
+  因发布时间优先主动停止，不能记作通过）
+- tests/test_artlab_streaming_scale.gd
+- tests/test_artlab_visual_calibration.gd
+- tools/run_godot_tests.ps1 的完整套件报告
+- tools/capture_artlab_matrix.gd 的五场景图形渲染与人工清单
+- tools/benchmark_artlab_policy.gd、CPU/帧耗时/峰值内存和高密度热点优化
+
+上述待测项不涉及新增对外契约；下一节所列契约/架构候选仍全部未实现。
 
 六、后续候选：需要先批准契约/架构变化，不得直接实现
 

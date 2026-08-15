@@ -1,0 +1,22 @@
+{
+  "status": "ok",
+  "world_ir": {
+    "regions": [
+      {"id":"forest","type":"forest","placement":{"anchor":"west"}},
+      {"id":"village","type":"village","placement":{"anchor":"east"}}
+    ],
+    "networks": [
+      {"id":"main_road","type":"road","topology":{"from":"west","to":"east"}}
+    ],
+    "entities": [
+      {"id":"church","type":"church","placement":{"relations":[{"type":"inside","target":"village"},{"type":"near","target":"main_road"}]}}
+    ],
+    "distributions": [
+      {"id":"houses","type":"house","placement":{"relations":[{"type":"inside","target":"village"},{"type":"along","target":"main_road"}]},"population":{"amount":{"mode":"count","value":14},"arrangement":{"type":"uniform"}}},
+      {"id":"trees","type":"tree","placement":{"relations":[{"type":"inside","target":"forest"},{"type":"far_from","target":"village"}]},"population":{"amount":{"mode":"density","value":"high"},"arrangement":{"type":"clustered"}}}
+    ]
+  },
+  "runtime_bindings": [],
+  "runtime_fact_ops": [],
+  "meta": {"request_id":"artlab_inland_village","mode":"initial"}
+}

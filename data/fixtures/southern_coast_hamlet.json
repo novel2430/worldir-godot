@@ -1,0 +1,23 @@
+{
+  "status": "ok",
+  "world_ir": {
+    "regions": [
+      {"id":"forest","type":"forest","placement":{"anchor":"west"}},
+      {"id":"coast","type":"coast","placement":{"anchor":"south"}},
+      {"id":"hamlet","type":"village","placement":{"relations":[{"type":"near","target":"coast"}]}}
+    ],
+    "networks": [
+      {"id":"coast_road","type":"road","topology":{"from":"west","to":"east"},"placement":{"relations":[{"type":"inside","target":"hamlet"}]}}
+    ],
+    "entities": [
+      {"id":"church","type":"church","placement":{"relations":[{"type":"inside","target":"hamlet"},{"type":"near","target":"coast_road"}]}}
+    ],
+    "distributions": [
+      {"id":"houses","type":"house","placement":{"relations":[{"type":"inside","target":"hamlet"},{"type":"along","target":"coast_road"}]},"population":{"amount":{"mode":"count","value":10},"arrangement":{"type":"uniform"}}},
+      {"id":"trees","type":"tree","placement":{"relations":[{"type":"inside","target":"forest"},{"type":"far_from","target":"hamlet"}]},"population":{"amount":{"mode":"density","value":"medium"},"arrangement":{"type":"clustered"}}}
+    ]
+  },
+  "runtime_bindings": [],
+  "runtime_fact_ops": [],
+  "meta": {"request_id":"artlab_southern_coast","mode":"initial"}
+}

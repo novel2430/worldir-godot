@@ -102,6 +102,25 @@ Deliberately still simple:
 
 ## Smoke checks
 
+### ArtLab Policy publish status (2026-08-15)
+
+The `to-V1-B` integration has passed the fast static validator plus focused real-engine
+checks for Policy fallback/version handling, Chunk-local dependency closure, and
+generation-order determinism on Godot 4.7.1 for Windows. The following broader checks
+are intentionally deferred so functional integration can land first:
+
+- `tests/test_artlab_scenario_matrix.gd`
+- `tests/test_artlab_streaming_scale.gd`
+- `tests/test_artlab_visual_calibration.gd`
+- the complete suite through `tools/run_godot_tests.ps1`
+- `tools/benchmark_artlab_policy.gd` and high-density performance profiling
+- the multi-scenario graphical capture through `tools/capture_artlab_matrix.gd`
+
+These are validation and optimization follow-ups; no known syntax error or blocking
+functional defect is being hidden by the deferral. Existing pre-integration evidence is
+30/30 real-engine tests plus the six-view graphical capture documented in
+`docs/artlab_policy_development_memo_2026-08-15.txt`.
+
 Without Godot installed:
 
 ```bash
@@ -121,6 +140,11 @@ godot --headless --path . --script tests/test_coast_water.gd
 godot --headless --path . --script tests/test_distribution_arrangement.gd
 godot --headless --path . --script tests/test_backend_config.gd
 godot --headless --path . --script tests/test_realization_policy.gd
+godot --headless --path . --script tests/test_chunk_dependency_closure.gd
+godot --headless --path . --script tests/test_artlab_policy_determinism.gd
+godot --headless --path . --script tests/test_artlab_scenario_matrix.gd
+godot --headless --path . --script tests/test_artlab_streaming_scale.gd
+godot --headless --path . --script tests/test_artlab_visual_calibration.gd
 godot --headless --path . --script tests/test_scene_diff.gd
 godot --headless --path . --script tests/test_coastal_town_houses.gd
 godot --headless --path . --script tests/test_region_claims.gd

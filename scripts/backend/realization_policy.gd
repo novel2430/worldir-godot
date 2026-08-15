@@ -3,6 +3,8 @@ extends RefCounted
 
 const DEFAULT_PATH := "res://data/configs/artlab_realization_policy.json"
 const FORMAT := "worldir-godot-artlab-realization-policy-v1"
+const FORMAT_VERSION := 1
+const SUPPORTED_FORMATS: Array[String] = [FORMAT]
 
 # Built-in values are compatibility fallbacks. The JSON file is the live policy
 # source, just as backend.json is the live source for spatial lowering policy.
@@ -199,9 +201,12 @@ const DEFAULT_VALUES := {
 
 var values: Dictionary = DEFAULT_VALUES.duplicate(true)
 var warnings := PackedStringArray()
+var source_path := ""
+var loaded_from_disk := false
 var _path_cache: Dictionary = {}
 
 func _init(path: String = DEFAULT_PATH) -> void:
+    source_path = path
     if path.is_empty():
         return
     if not FileAccess.file_exists(path):
@@ -212,10 +217,33 @@ func _init(path: String = DEFAULT_PATH) -> void:
         warnings.append("Realization policy '%s' is not a JSON object; built-in defaults are active" % path)
         return
     var incoming := parsed as Dictionary
-    if String(incoming.get("format", "")) != FORMAT:
-        warnings.append("Realization policy '%s' has an unsupported format; built-in defaults are active" % path)
+    var incoming_format := String(incoming.get("format", ""))
+    if incoming_format not in SUPPORTED_FORMATS:
+        warnings.append(
+            "Realization policy '%s' has unsupported format '%s' (supported: %s); built-in defaults are active"
+            % [path, incoming_format, ", ".join(SUPPORTED_FORMATS)]
+        )
         return
     _merge_known(values, incoming, "policy")
+    loaded_from_disk = true
+
+func fingerprint() -> String:
+    # DEFAULT_VALUES establishes stable insertion order and _merge_known only
+    # replaces existing leaves, so this digest is deterministic across runs.
+    return JSON.stringify(values).sha256_text()
+
+func diagnostic_snapshot(include_values: bool = false) -> Dictionary:
+    var snapshot := {
+        "format": String(values.get("format", FORMAT)),
+        "format_version": FORMAT_VERSION,
+        "fingerprint": fingerprint(),
+        "source_path": source_path,
+        "loaded_from_disk": loaded_from_disk,
+        "warnings": Array(warnings),
+    }
+    if include_values:
+        snapshot["values"] = values.duplicate(true)
+    return snapshot
 
 func number(path: String, fallback: float) -> float:
     var value: Variant = get_value(path, fallback)
