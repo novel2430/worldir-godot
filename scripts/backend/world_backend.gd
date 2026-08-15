@@ -3,6 +3,8 @@ extends RefCounted
 
 const TerrainResolverScript = preload("res://scripts/backend/terrain_resolver.gd")
 const CoastResolverScript = preload("res://scripts/backend/coast_resolver.gd")
+const BackendConfigScript = preload("res://scripts/backend/backend_config.gd")
+const RegionClaimResolverScript = preload("res://scripts/backend/region_claim_resolver.gd")
 
 var region_lowerer := RegionLowerer.new()
 var network_lowerer := NetworkLowerer.new()
@@ -12,17 +14,34 @@ var terrain_resolver: RefCounted = TerrainResolverScript.new()
 var coast_resolver: RefCounted = CoastResolverScript.new()
 var forest_dresser := ForestDresser.new()
 var solver := PlacementSolver.new()
+var region_claim_resolver: RefCounted = RegionClaimResolverScript.new()
+var config: RefCounted
+
+func _init(config_overrides: Dictionary = {}) -> void:
+	config = BackendConfigScript.new(config_overrides)
+	distribution_lowerer.configure(config.lowering_values())
+	region_claim_resolver.configure(config.region_claim_values())
 
 func lower(
 	world_ir: Dictionary,
 	catalog: PrototypeCatalog,
-	seed_value: int,
+	seed_value: int = -1,
 	runtime_bindings: Array = [],
 	spatial_payloads: Dictionary = {}
 ) -> ResolvedWorld:
 	var out := ResolvedWorld.new()
-	out.seed = seed_value
-	solver.configure(out.world_bounds, seed_value)
+	var effective_seed: int = config.seed if seed_value < 0 else seed_value
+	out.seed = effective_seed
+	out.world_bounds = config.world_bounds()
+	for warning in config.warnings:
+		out.warnings.append(warning)
+	solver.configure(
+		out.world_bounds,
+		effective_seed,
+		config.near_threshold_m,
+		config.far_threshold_m,
+		config.along_threshold_m
+	)
 
 	var ir_objects: Dictionary = {}
 	var ir_kinds: Dictionary = {}
@@ -37,25 +56,43 @@ func lower(
 		"ir_objects": ir_objects,
 		"ir_kinds": ir_kinds,
 		"spatial_payloads": spatial_payloads,
-		"seed": seed_value,
+		"seed": effective_seed,
 	}
 
 	_validate_binding_capability(runtime_bindings, spatial_payloads, out)
 	if not out.errors.is_empty():
 		return out
 
-	for item in world_ir.get("regions", []):
+	var region_items: Array = world_ir.get("regions", [])
+	var resolved_regions_by_id: Dictionary = {}
+	var fixed_region_ids: Dictionary = {}
+	var region_lowering_order := _region_lowering_order(region_items, ir_kinds)
+	for item in region_lowering_order:
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
 		var resolved := region_lowerer.lower(item, solver, binding, spatial_payloads, context)
 		if resolved == null:
 			out.errors.append(region_lowerer.last_error if not region_lowerer.last_error.is_empty() else "Region lowering failed")
 			return out
-		out.regions.append(resolved)
+		resolved_regions_by_id[resolved.id] = resolved
 		context.regions[resolved.id] = resolved
+		if not binding.is_empty() or _is_single_unconstrained_region(item, region_items.size()):
+			fixed_region_ids[resolved.id] = true
+	if not region_claim_resolver.apply(
+		region_lowering_order,
+		resolved_regions_by_id,
+		solver,
+		fixed_region_ids
+	):
+		out.errors.append(region_claim_resolver.last_error)
+		return out
+	# Dependencies affect calculation order only. Preserve IR order in ResolvedWorld
+	# so callers never observe a gratuitous collection reorder.
+	for item in region_items:
+		out.regions.append(resolved_regions_by_id[String(item.get("id", ""))])
 
 	for item in world_ir.get("networks", []):
 		var binding := _binding_for(String(item.get("id", "")), runtime_bindings, out)
-		var resolved := network_lowerer.lower(item, solver, seed_value, context, binding)
+		var resolved := network_lowerer.lower(item, solver, effective_seed, context, binding)
 		if resolved == null:
 			out.errors.append(network_lowerer.last_error if not network_lowerer.last_error.is_empty() else "Network lowering failed")
 			return out
@@ -102,6 +139,46 @@ func _index_ir(world_ir: Dictionary, ir_objects: Dictionary, ir_kinds: Dictionar
 			var object_id := String(item.get("id", ""))
 			ir_objects[object_id] = item
 			ir_kinds[object_id] = String(roots[root_key])
+
+func _region_lowering_order(items: Array, ir_kinds: Dictionary) -> Array:
+	var pending: Array = items.duplicate()
+	var result: Array = []
+	var resolved_ids: Dictionary = {}
+	while not pending.is_empty():
+		var selected_index := -1
+		for index in range(pending.size()):
+			if _region_dependencies_ready(pending[index], resolved_ids, ir_kinds):
+				selected_index = index
+				break
+		# Cycles retain deterministic IR order and use the existing raw-target
+		# fallback for the first member; resolving it unlocks the rest of the cycle.
+		if selected_index < 0:
+			selected_index = 0
+		var item: Dictionary = pending[selected_index]
+		pending.remove_at(selected_index)
+		result.append(item)
+		resolved_ids[String(item.get("id", ""))] = true
+	return result
+
+func _region_dependencies_ready(
+	item: Dictionary,
+	resolved_ids: Dictionary,
+	ir_kinds: Dictionary
+) -> bool:
+	for relation in item.get("placement", {}).get("relations", []):
+		var target := String(relation.get("target", ""))
+		if String(ir_kinds.get(target, "")) == "region" and not resolved_ids.has(target):
+			return false
+	return true
+
+func _is_single_unconstrained_region(item: Dictionary, region_count: int) -> bool:
+	if region_count != 1:
+		return false
+	var placement: Dictionary = item.get("placement", {})
+	return (
+		String(placement.get("anchor", "")).strip_edges().is_empty()
+		and (placement.get("relations", []) as Array).is_empty()
+	)
 
 func _validate_binding_capability(bindings: Array, spatial_payloads: Dictionary, out: ResolvedWorld) -> void:
 	var per_object_count: Dictionary = {}

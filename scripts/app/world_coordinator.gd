@@ -8,7 +8,8 @@ signal world_committed(resolved: ResolvedWorld)
 @export var use_http_compiler: bool = false
 @export var compiler_base_url: String = "http://127.0.0.1:8787"
 @export var compiler_timeout_seconds: float = 1200.0
-@export var world_seed: int = 1337
+# A negative value delegates the seed to data/configs/backend.json.
+@export var world_seed: int = -1
 @export var auto_generate_demo: bool = true
 
 @onready var world_root: Node3D = %WorldRoot
@@ -78,7 +79,15 @@ func _on_compile_completed(result: Dictionary) -> void:
 		_finish(false, "Scene candidate failed; old world preserved")
 		return
 
-	scene_runtime.commit_candidate(world_root, candidate_scene)
+	if current_resolved == null:
+		scene_runtime.commit_candidate(world_root, candidate_scene)
+	else:
+		await scene_runtime.transition_candidate(
+			world_root,
+			candidate_scene,
+			current_resolved,
+			candidate_resolved
+		)
 	world_state.commit(candidate_ir, candidate_facts)
 	current_resolved = candidate_resolved
 	world_committed.emit(candidate_resolved)

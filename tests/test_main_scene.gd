@@ -26,6 +26,37 @@ func _run() -> void:
         _expect(coordinator.current_resolved.terrain != null, "Committed demo must include resolved terrain")
         _expect(main.get_node_or_null("WorldRoot/GeneratedWorld/Terrain/WorldSurface") != null, "Committed scene must contain the world surface")
         _expect(main.get_node_or_null("BaseGround") == null, "Legacy flat base ground must stay removed")
+        var generated := main.get_node("WorldRoot/GeneratedWorld") as Node3D
+        var stable_tree := generated.get_node("Distributions/trees/trees_000") as Node3D
+        var stable_terrain := generated.get_node("Terrain/WorldSurface") as Node3D
+        var stable_road := generated.get_node("Networks/main_road") as Node3D
+        var generated_id := generated.get_instance_id()
+        var tree_id := stable_tree.get_instance_id()
+        var terrain_id := stable_terrain.get_instance_id()
+        var road_id := stable_road.get_instance_id()
+        coordinator.scene_runtime.scene_transition.duration_scale = 0.02
+        coordinator.submit_prompt("保持当前世界不变")
+        await process_frame
+        _expect(
+            (main.get_node("WorldRoot/GeneratedWorld") as Node3D).get_instance_id() == generated_id,
+            "No-op edit must preserve the active GeneratedWorld Node"
+        )
+        _expect(
+            (main.get_node("WorldRoot/GeneratedWorld/Distributions/trees/trees_000") as Node3D).get_instance_id() == tree_id,
+            "No-op edit must preserve unchanged instance identity"
+        )
+        _expect(
+            (main.get_node("WorldRoot/GeneratedWorld/Terrain/WorldSurface") as Node3D).get_instance_id() == terrain_id,
+            "No-op edit must preserve unchanged terrain identity"
+        )
+        _expect(
+            (main.get_node("WorldRoot/GeneratedWorld/Networks/main_road") as Node3D).get_instance_id() == road_id,
+            "No-op edit must preserve unchanged road identity"
+        )
+        _expect(
+            not coordinator.scene_runtime.scene_transition.last_patch_summary.ripple_spawned,
+            "No-op edit must not play rewrite feedback"
+        )
     main.free()
     if failures == 0:
         print("Main scene smoke test passed")

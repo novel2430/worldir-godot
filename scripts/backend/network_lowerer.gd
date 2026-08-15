@@ -181,7 +181,7 @@ func _relation_traversal_point(relation: Dictionary, solver: PlacementSolver, co
 	if kind == "direction_of":
 		var center := solver.target_center(target, context)
 		var axis := _direction_axis(String(relation.get("direction", "")))
-		var point := center + axis * (PlacementSolver.FAR_THRESHOLD_M + 4.0)
+		var point := center + axis * (solver.far_threshold_m + 4.0)
 		return {"ok": true, "point": _clamp_point(point, solver.world_bounds)}
 	return {"ok": false, "error": "relation '%s' is not implemented" % kind}
 

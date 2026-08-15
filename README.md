@@ -71,6 +71,12 @@ Implemented:
 - Boundary-touching Coast Regions resolve into deterministic shoreline geometry, submerged terrain, wet sand, foam, and a lightweight stylized ocean surface with animated wave normals and color bands.
 - Prototype-aware Entity placement.
 - Distribution `count` / TSCN-footprint and usable-area-scaled qualitative `density` / `density_profile.gradient` weighted lowering.
+- Explicit Distribution arrangements are authoritative; only a missing tree arrangement may receive the backend's natural Forest realization profile.
+- `data/configs/backend.json` drives world size, default seed, spatial thresholds, and area-density realization parameters.
+- Stable Resolved SceneDiff reports object-level added/removed/changed or moved/replaced/unchanged records for incremental transitions.
+- Incremental World Rewrite transitions preserve unchanged Node identity; changed objects grow/fade/move/crossfade with bounded spatial stagger and a restrained local ground ripple.
+- Distribution variants, yaw, candidates, clusters, and along-road slots use object-local deterministic streams; count changes preserve existing instance prefixes when spatial constraints remain compatible.
+- Regions use deterministic bounded claims: anchors and relations establish seeds, configured area budgets limit spread, same-layer Regions arbitrate contested ground without filling the world, and `inside` remains hierarchical overlap.
 - Resolved-polygon Forest Dressing with area-scaled, seeded edge vegetation, clustered rocks/bushes, rare bare-tree accents, and shared occupancy avoidance.
 - `inside`, `near`, `far_from`, `along`, `direction_of` placement operators.
 - `random`, `uniform`, `clustered` arrangement.
@@ -86,7 +92,7 @@ Deliberately still simple:
 - Roads bend lightly; terrain is graded beneath the core/shoulder, the ribbon is longitudinally densified, and both edges independently sample terrain. Topology routing remains a simple deterministic heuristic.
 - Ocean V0 is opaque, bounded to world-edge Coast realization, and intentionally has no swimming, buoyancy, reflection probe, or transparent depth rendering.
 - Density gradient uses qualitative weighted sampling; it is intentionally not a numeric density-field solver.
-- Scene transition is an atomic rebuild/swap extension point, not a visual dissolve/growth effect yet.
+- Road/Water geometry changes currently use ripple-assisted crossfade rather than spline/fluid morph; Terrain swaps its whole mesh at the ripple peak rather than chunking or vertex morphing.
 - Runtime Fact gameplay aggregation is demonstrated by a deterministic demo fact, not tree-cutting gameplay.
 
 ## Smoke checks
@@ -107,6 +113,12 @@ godot --headless --path . --script tests/test_road_builder.gd
 godot --headless --path . --script tests/test_terrain_surface.gd
 godot --headless --path . --script tests/test_main_scene.gd
 godot --headless --path . --script tests/test_coast_water.gd
+godot --headless --path . --script tests/test_distribution_arrangement.gd
+godot --headless --path . --script tests/test_backend_config.gd
+godot --headless --path . --script tests/test_scene_diff.gd
+godot --headless --path . --script tests/test_coastal_town_houses.gd
+godot --headless --path . --script tests/test_region_claims.gd
+godot --headless --path . --script tests/test_scene_transition.gd
 ```
 
 ## Architecture invariants

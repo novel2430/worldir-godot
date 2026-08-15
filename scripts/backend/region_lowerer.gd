@@ -54,7 +54,7 @@ func lower(
         out.surface_kind = out.semantic_type
         return out
 
-    var rect: Rect2 = _resolve_semantic_rect(out.semantic_type, placement, solver, context)
+    var rect: Rect2 = _resolve_semantic_rect(out.id, out.semantic_type, placement, solver, context)
     if not rect.has_area():
         last_error = "Placement failed for Region '%s': no geometry satisfies all placement constraints" % out.id
         return null
@@ -91,6 +91,7 @@ func _is_single_unconstrained_region(placement: Dictionary, context: Dictionary)
     return anchor.is_empty() and relations.is_empty()
 
 func _resolve_semantic_rect(
+    object_id: String,
     semantic_type: String,
     placement: Dictionary,
     solver: PlacementSolver,
@@ -98,6 +99,15 @@ func _resolve_semantic_rect(
 ) -> Rect2:
     var relations: Array = placement.get("relations", [])
     var inside_target: String = _relation_target(relations, "inside")
+
+    var coastal_neighbor := _landward_near_coast_rect(
+        semantic_type,
+        placement,
+        solver,
+        context
+    )
+    if coastal_neighbor.has_area():
+        return coastal_neighbor
 
     # Environmental Regions are territories, not 30x30 objects. A simple anchor
     # or direction_of relation is enough to define a large-scale preference field.
@@ -151,12 +161,119 @@ func _resolve_semantic_rect(
         var center: Vector2 = solver.world_bounds.get_center()
         return _clamp_rect(Rect2(center - region_size * 0.5, region_size), solver.world_bounds)
 
-    var candidate: Dictionary = solver.try_resolve_candidate(placement, 0.0, context, preferred)
+    var candidate: Dictionary = solver.try_resolve_candidate(
+        placement,
+        0.0,
+        context,
+        preferred,
+        solver.local_rng(object_id, 0, 0x5245474E)
+    )
     if not bool(candidate.get("ok", false)):
         return Rect2()
 
     var center_point: Vector2 = candidate["position"]
     return _clamp_rect(Rect2(center_point - region_size * 0.5, region_size), solver.world_bounds)
+
+func _landward_near_coast_rect(
+    semantic_type: String,
+    placement: Dictionary,
+    solver: PlacementSolver,
+    context: Dictionary
+) -> Rect2:
+    var relations: Array = placement.get("relations", [])
+    # Keep this V0 realization deliberately narrow: one unanchored Region whose
+    # only relation is near a resolved Coast. More complex conjunctions continue
+    # through the generic constraint path rather than silently losing semantics.
+    if semantic_type == "coast" or placement.has("anchor") or relations.size() != 1:
+        return Rect2()
+    var relation: Dictionary = relations[0]
+    if String(relation.get("type", "")) != "near":
+        return Rect2()
+    var target_id := String(relation.get("target", ""))
+    var coast: ResolvedRegion = context.get("regions", {}).get(target_id)
+    if coast == null or coast.semantic_type != "coast" or coast.polygon.size() < 3:
+        return Rect2()
+
+    var bounds := solver.world_bounds
+    var coast_rect := solver.polygon_aabb(coast.polygon)
+    var coast_edge := _resolved_coast_edge(target_id, coast_rect, bounds, context)
+    if coast_edge.is_empty():
+        return Rect2()
+    var size := _region_size_prior(semantic_type, bounds.size)
+    var gap := clampf(solver.near_threshold_m * 0.25, 2.0, 6.0)
+    var position := Vector2.ZERO
+    match coast_edge:
+        "east":
+            var available := coast_rect.position.x - bounds.position.x - gap
+            size.x = minf(size.x, available)
+            position = Vector2(
+                coast_rect.position.x - gap - size.x,
+                coast_rect.get_center().y - size.y * 0.5
+            )
+        "west":
+            var available := bounds.end.x - coast_rect.end.x - gap
+            size.x = minf(size.x, available)
+            position = Vector2(
+                coast_rect.end.x + gap,
+                coast_rect.get_center().y - size.y * 0.5
+            )
+        "north":
+            var available := bounds.end.y - coast_rect.end.y - gap
+            size.y = minf(size.y, available)
+            position = Vector2(
+                coast_rect.get_center().x - size.x * 0.5,
+                coast_rect.end.y + gap
+            )
+        "south":
+            var available := coast_rect.position.y - bounds.position.y - gap
+            size.y = minf(size.y, available)
+            position = Vector2(
+                coast_rect.get_center().x - size.x * 0.5,
+                coast_rect.position.y - gap - size.y
+            )
+    if size.x < 4.0 or size.y < 4.0:
+        return Rect2()
+    return _clamp_rect(Rect2(position, size), bounds)
+
+func _resolved_coast_edge(
+    coast_id: String,
+    rect: Rect2,
+    bounds: Rect2,
+    context: Dictionary
+) -> String:
+    # A large Coast can legitimately span the complete cross-axis and therefore
+    # touch three world edges (for example an east Coast also touches north and
+    # south). Its explicit cardinal realization is less ambiguous than trying to
+    # infer one unique edge from that AABB. Still verify that the resolved polygon
+    # actually reaches the declared boundary before using it.
+    var coast_ir: Dictionary = context.get("ir_objects", {}).get(coast_id, {})
+    var placement: Dictionary = coast_ir.get("placement", {})
+    var declared_edge := _coast_edge_direction("coast", placement)
+    if not declared_edge.is_empty() and _rect_touches_edge(rect, bounds, declared_edge):
+        return declared_edge
+
+    return _resolved_boundary_edge(rect, bounds)
+
+func _rect_touches_edge(rect: Rect2, bounds: Rect2, edge: String) -> bool:
+    const EDGE_EPSILON := 0.2
+    match edge:
+        "west": return absf(rect.position.x - bounds.position.x) <= EDGE_EPSILON
+        "east": return absf(rect.end.x - bounds.end.x) <= EDGE_EPSILON
+        "north": return absf(rect.position.y - bounds.position.y) <= EDGE_EPSILON
+        "south": return absf(rect.end.y - bounds.end.y) <= EDGE_EPSILON
+    return false
+
+func _resolved_boundary_edge(rect: Rect2, bounds: Rect2) -> String:
+    var contacts: Array[String] = []
+    if _rect_touches_edge(rect, bounds, "west"):
+        contacts.append("west")
+    if _rect_touches_edge(rect, bounds, "east"):
+        contacts.append("east")
+    if _rect_touches_edge(rect, bounds, "north"):
+        contacts.append("north")
+    if _rect_touches_edge(rect, bounds, "south"):
+        contacts.append("south")
+    return contacts[0] if contacts.size() == 1 else ""
 
 func _large_scale_preference_rect(
     semantic_type: String,

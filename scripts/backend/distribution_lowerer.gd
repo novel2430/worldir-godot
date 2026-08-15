@@ -15,9 +15,30 @@ const FOREST_CLUSTER_COUNT := 3
 const FOREST_EDGE_DENSITY := 0.12
 const FOREST_INTERIOR_DEPTH_RATIO := 0.14
 const FOREST_CLUSTER_RADIUS_RATIO := 0.22
+const EXPLICIT_CLUSTER_COUNT := 4
+const ALONG_SAMPLE_COUNT := 1024
+const VARIANT_SEED_SALT := 0x56415249
+const POSITION_SEED_SALT := 0x504F5349
+const YAW_SEED_SALT := 0x59415700
+const CLUSTER_SEED_SALT := 0x434C5354
+const ALONG_SLOT_SEED_SALT := 0x534C4F54
 
 var binding_resolver = RuntimeBindingResolverScript.new()
 var last_error := ""
+var default_population_budget := DEFAULT_POPULATION_BUDGET
+var random_packing_loss := RANDOM_PACKING_LOSS
+var density_spacing_multipliers: Dictionary = DENSITY_SPACING_MULTIPLIERS.duplicate()
+var population_caps: Dictionary = POPULATION_CAPS.duplicate()
+
+func configure(values: Dictionary) -> void:
+	default_population_budget = int(values.get("default_population_budget", DEFAULT_POPULATION_BUDGET))
+	random_packing_loss = float(values.get("random_packing_loss", RANDOM_PACKING_LOSS))
+	density_spacing_multipliers = (
+		values.get("density_spacing_multipliers", DENSITY_SPACING_MULTIPLIERS) as Dictionary
+	).duplicate()
+	population_caps = (
+		values.get("population_caps", POPULATION_CAPS) as Dictionary
+	).duplicate()
 
 func lower(
 	item: Dictionary,
@@ -63,7 +84,7 @@ func lower(
 	if count < 0:
 		last_error = "Placement failed for Distribution '%s': density placement has no usable area" % out.id
 		return null
-	var variants := _choose_instance_variants(catalog, out.semantic_type, count, solver.rng)
+	var variants := _choose_instance_variants(catalog, out.semantic_type, out.id, count, solver)
 	var instance_prototype_ids: Array[String] = variants["prototype_ids"]
 	var instance_scales: Array[float] = variants["scales"]
 
@@ -81,13 +102,14 @@ func lower(
 			return null
 		return out
 
+	var arrangement_is_specified := population.has("arrangement")
 	var arrangement := String(population.get("arrangement", {}).get("type", "random"))
-	# A forest is visually read through a sparse edge and denser interior groups.
-	# This is a backend realization policy for an explicit tree Distribution, not
-	# semantic completion: it creates no objects and never mutates the World IR.
-	# Explicit gradient and uniform arrangements remain authoritative.
+	# Missing arrangement is unspecified World IR, so the backend may choose a
+	# natural forest realization. Every explicit arrangement remains authoritative:
+	# random stays unclustered random, clustered uses its own clustering algorithm,
+	# and uniform uses its regularized placement path.
 	var realization_profile: Dictionary = {}
-	if density_profile.is_empty() and arrangement != "uniform":
+	if density_profile.is_empty() and not arrangement_is_specified:
 		realization_profile = _forest_realization_profile(out, placement, context, domain)
 	var ok: bool = true
 	if arrangement == "clustered":
@@ -137,14 +159,16 @@ func _combined_population_metadata(catalog: PrototypeCatalog, prototype_ids: Arr
 func _choose_instance_variants(
 	catalog: PrototypeCatalog,
 	semantic_type: String,
+	distribution_id: String,
 	count: int,
-	rng: RandomNumberGenerator
+	solver: PlacementSolver
 ) -> Dictionary:
 	var prototype_ids: Array[String] = []
 	var scales: Array[float] = []
 	var options := catalog.get_prototype_ids(semantic_type)
-	for _index in range(count):
-		var variant := catalog.choose_population_variant(options, rng)
+	for index in range(count):
+		var variant_rng := solver.local_rng(distribution_id, index, VARIANT_SEED_SALT)
+		var variant := catalog.choose_population_variant(options, variant_rng)
 		prototype_ids.append(String(variant.get("prototype_id", "")))
 		scales.append(float(variant.get("scale", 1.0)))
 	return {"prototype_ids": prototype_ids, "scales": scales}
@@ -162,7 +186,7 @@ func _resolve_count(
 	# Missing population amount is unspecified in World IR V2. It is NOT semantic
 	# medium density. Use a small backend realization default instead.
 	if amount.is_empty():
-		return DEFAULT_POPULATION_BUDGET
+		return default_population_budget
 	if String(amount.get("mode", "")) == "count":
 		return maxi(0, int(amount.get("value", 0)))
 
@@ -172,17 +196,17 @@ func _resolve_count(
 		return -1
 	var footprint: Vector2 = prototype_meta.get("population_footprint", Vector2.ONE * radius * 2.0)
 	var preferred_spacing := float(prototype_meta.get("population_spacing", 2.0))
-	var spacing_multiplier := float(DENSITY_SPACING_MULTIPLIERS.get(
+	var spacing_multiplier := float(density_spacing_multipliers.get(
 		density,
-		DENSITY_SPACING_MULTIPLIERS["medium"]
+		density_spacing_multipliers.get("medium", DENSITY_SPACING_MULTIPLIERS["medium"])
 	))
 	var spacing := preferred_spacing * spacing_multiplier
 	var area_per_instance := (
 		maxf(0.1, footprint.x + spacing)
 		* maxf(0.1, footprint.y + spacing)
-		* RANDOM_PACKING_LOSS
+		* random_packing_loss
 	)
-	var population_cap := int(POPULATION_CAPS.get(semantic_type, DEFAULT_POPULATION_CAP))
+	var population_cap := int(population_caps.get(semantic_type, DEFAULT_POPULATION_CAP))
 	return clampi(int(round(usable_area / area_per_instance)), 1, population_cap)
 
 func _estimate_usable_area(
@@ -226,13 +250,13 @@ func _place_along_constrained(
 		last_error = "Placement failed for Distribution '%s': along target has no usable curve" % out.id
 		return false
 
-	# Build a dense deterministic pool along both road sides. This lets another
+	# Build one count-independent deterministic pool along both road sides. This
+	# makes instance index -> slot prefix-stable while still letting another
 	# conjunctive relation (inside/far_from/direction_of) filter candidates instead
 	# of being discarded by the specialized along path.
-	var candidate_budget: int = maxi(96, count * 12)
 	var candidates: Array[Vector2] = []
-	for j in range(candidate_budget):
-		var t: float = (float(j) + 0.5) / float(candidate_budget)
+	for j in range(ALONG_SAMPLE_COUNT):
+		var t: float = (float(j) + 0.5) / float(ALONG_SAMPLE_COUNT)
 		var sample: Array = solver.sample_network(network, t)
 		var road_point: Vector2 = sample[0]
 		var tangent: Vector2 = sample[1]
@@ -248,8 +272,14 @@ func _place_along_constrained(
 		return false
 
 	var used: Dictionary = {}
+	var slot_phase := solver.local_rng(out.id, 0, ALONG_SLOT_SEED_SALT).randf()
 	for i in range(count):
-		var desired_index: int = clampi(int(floor((float(i) + 0.5) * float(candidates.size()) / float(count))), 0, candidates.size() - 1)
+		var slot_unit := fmod(slot_phase + _radical_inverse(i + 1, 2), 1.0)
+		var desired_index: int = clampi(
+			int(floor(slot_unit * float(candidates.size()))),
+			0,
+			candidates.size() - 1
+		)
 		var chosen_index: int = _nearest_usable_candidate(candidates, desired_index, used, radius, solver)
 		if chosen_index < 0:
 			# Geometry occupancy is currently best-effort for repeated roadside objects;
@@ -262,7 +292,8 @@ func _place_along_constrained(
 		used[chosen_index] = true
 		var p: Vector2 = candidates[chosen_index]
 		solver.register_occupancy(p, radius, "%s:%03d" % [out.id, i])
-		var yaw := _yaw_toward_road(p, network, solver) + solver.rng.randf_range(-yaw_jitter, yaw_jitter)
+		var yaw_rng := solver.local_rng(out.id, i, YAW_SEED_SALT)
+		var yaw := _yaw_toward_road(p, network, solver) + yaw_rng.randf_range(-yaw_jitter, yaw_jitter)
 		out.instances.append(_instance(out.id, i, prototype_ids[i], instance_scales[i], p, yaw))
 	return true
 
@@ -302,13 +333,24 @@ func _place_scattered(
 		return _place_uniform(out, prototype_ids, instance_scales, count, radius, placement, context, solver, domain, density_profile)
 
 	for i in range(count):
-		var candidate: Dictionary = _weighted_candidate(placement, radius, context, solver, domain, density_profile, realization_profile)
+		var position_rng := solver.local_rng(out.id, i, POSITION_SEED_SALT)
+		var candidate: Dictionary = _weighted_candidate(
+			placement,
+			radius,
+			context,
+			solver,
+			domain,
+			density_profile,
+			realization_profile,
+			position_rng
+		)
 		if not bool(candidate.get("ok", false)):
 			last_error = "Placement failed for Distribution '%s' instance %d: %s" % [out.id, i, String(candidate.get("error", "unknown placement failure"))]
 			return false
 		var p: Vector2 = candidate["position"]
 		solver.register_occupancy(p, radius, "%s:%03d" % [out.id, i])
-		out.instances.append(_instance(out.id, i, prototype_ids[i], instance_scales[i], p, solver.rng.randf_range(-PI, PI)))
+		var yaw := solver.local_rng(out.id, i, YAW_SEED_SALT).randf_range(-PI, PI)
+		out.instances.append(_instance(out.id, i, prototype_ids[i], instance_scales[i], p, yaw))
 	return true
 
 func _place_uniform(
@@ -323,69 +365,35 @@ func _place_uniform(
 	domain: Rect2,
 	density_profile: Dictionary
 ) -> bool:
-	if density_profile.is_empty():
-		var cols: int = maxi(1, int(ceil(sqrt(float(count)))))
-		var rows: int = maxi(1, int(ceil(float(count) / float(cols))))
-		var index := 0
-		for r in range(rows):
-			for c in range(cols):
-				if index >= count:
-					return true
-				var p := domain.position + Vector2(
-					(float(c) + 0.5) / float(cols) * domain.size.x,
-					(float(r) + 0.5) / float(rows) * domain.size.y
-				)
-				if solver.is_candidate_valid(p, placement, radius, context):
-					solver.register_occupancy(p, radius, "%s:%03d" % [out.id, index])
-					out.instances.append(_instance(out.id, index, prototype_ids[index], instance_scales[index], p, solver.rng.randf_range(-PI, PI)))
-					index += 1
-		while index < count:
-			var candidate: Dictionary = solver.try_resolve_candidate(placement, radius, context, domain)
-			if not bool(candidate.get("ok", false)):
-				last_error = "Placement failed for Distribution '%s' instance %d: %s" % [out.id, index, String(candidate.get("error", "unknown placement failure"))]
-				return false
-			var fallback: Vector2 = candidate["position"]
-			solver.register_occupancy(fallback, radius, "%s:%03d" % [out.id, index])
-			out.instances.append(_instance(out.id, index, prototype_ids[index], instance_scales[index], fallback, solver.rng.randf_range(-PI, PI)))
-			index += 1
-		return true
-
-	var candidate_budget: int = maxi(count * 4, count + 8)
-	var cols: int = maxi(1, int(ceil(sqrt(float(candidate_budget)))))
-	var rows: int = maxi(1, int(ceil(float(candidate_budget) / float(cols))))
-	var candidates: Array = []
-	for r in range(rows):
-		for c in range(cols):
-			var p := domain.position + Vector2(
-				(float(c) + 0.5) / float(cols) * domain.size.x,
-				(float(r) + 0.5) / float(rows) * domain.size.y
+	for index in range(count):
+		var position_rng := solver.local_rng(out.id, index, POSITION_SEED_SALT)
+		var p := domain.position + Vector2(
+			_radical_inverse(index + 1, 2) * domain.size.x,
+			_radical_inverse(index + 1, 3) * domain.size.y
+		)
+		var weight := _profile_weight(p, density_profile, domain, context, solver)
+		var accepted := (
+			solver.is_candidate_valid(p, placement, radius, context)
+			and position_rng.randf() <= weight
+		)
+		if not accepted:
+			var fallback_result := _weighted_candidate(
+				placement,
+				radius,
+				context,
+				solver,
+				domain,
+				density_profile,
+				{},
+				position_rng
 			)
-			if not solver.is_candidate_valid(p, placement, radius, context):
-				continue
-			var weight: float = _profile_weight(p, density_profile, domain, context, solver)
-			candidates.append({"position": p, "rank": solver.rng.randf() * weight})
-	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["rank"]) > float(b["rank"]))
-
-	var index := 0
-	for candidate in candidates:
-		if index >= count:
-			break
-		var p: Vector2 = candidate["position"]
-		if solver.overlaps(p, radius):
-			continue
+			if not bool(fallback_result.get("ok", false)):
+				last_error = "Placement failed for Distribution '%s' instance %d: %s" % [out.id, index, String(fallback_result.get("error", "unknown placement failure"))]
+				return false
+			p = fallback_result["position"]
 		solver.register_occupancy(p, radius, "%s:%03d" % [out.id, index])
-		out.instances.append(_instance(out.id, index, prototype_ids[index], instance_scales[index], p, solver.rng.randf_range(-PI, PI)))
-		index += 1
-
-	while index < count:
-		var fallback_result := _weighted_candidate(placement, radius, context, solver, domain, density_profile)
-		if not bool(fallback_result.get("ok", false)):
-			last_error = "Placement failed for Distribution '%s' instance %d: %s" % [out.id, index, String(fallback_result.get("error", "unknown placement failure"))]
-			return false
-		var fallback: Vector2 = fallback_result["position"]
-		solver.register_occupancy(fallback, radius, "%s:%03d" % [out.id, index])
-		out.instances.append(_instance(out.id, index, prototype_ids[index], instance_scales[index], fallback, solver.rng.randf_range(-PI, PI)))
-		index += 1
+		var yaw := solver.local_rng(out.id, index, YAW_SEED_SALT).randf_range(-PI, PI)
+		out.instances.append(_instance(out.id, index, prototype_ids[index], instance_scales[index], p, yaw))
 	return true
 
 func _place_clustered(
@@ -403,10 +411,20 @@ func _place_clustered(
 ) -> bool:
 	if count <= 0:
 		return true
-	var cluster_count := clampi(int(round(sqrt(float(count)) / 2.0)), 2, 6)
+	var cluster_count := EXPLICIT_CLUSTER_COUNT
 	var centers: Array[Vector2] = []
-	for _i in range(cluster_count):
-		var center_result: Dictionary = _weighted_candidate(placement, 0.0, context, solver, domain, density_profile, realization_profile)
+	for center_index in range(cluster_count):
+		var center_rng := solver.local_rng(out.id, center_index, CLUSTER_SEED_SALT)
+		var center_result: Dictionary = _weighted_candidate(
+			placement,
+			0.0,
+			context,
+			solver,
+			domain,
+			density_profile,
+			realization_profile,
+			center_rng
+		)
 		if not bool(center_result.get("ok", false)):
 			last_error = "Placement failed for Distribution '%s' cluster center: %s" % [out.id, String(center_result.get("error", "unknown placement failure"))]
 			return false
@@ -414,7 +432,8 @@ func _place_clustered(
 
 	for i in range(count):
 		var center: Vector2 = centers[i % centers.size()]
-		var p: Vector2 = center + Vector2.from_angle(solver.rng.randf_range(0.0, TAU)) * solver.rng.randf_range(2.0, 13.0)
+		var position_rng := solver.local_rng(out.id, i, POSITION_SEED_SALT)
+		var p: Vector2 = center + Vector2.from_angle(position_rng.randf_range(0.0, TAU)) * position_rng.randf_range(2.0, 13.0)
 		var weight: float = (
 			_profile_weight(p, density_profile, domain, context, solver)
 			* _realization_weight(p, realization_profile)
@@ -422,16 +441,26 @@ func _place_clustered(
 		var accepted: bool = (
 			domain.has_point(p)
 			and solver.is_candidate_valid(p, placement, radius, context)
-			and solver.rng.randf() <= weight
+			and position_rng.randf() <= weight
 		)
 		if not accepted:
-			var candidate: Dictionary = _weighted_candidate(placement, radius, context, solver, domain, density_profile, realization_profile)
+			var candidate: Dictionary = _weighted_candidate(
+				placement,
+				radius,
+				context,
+				solver,
+				domain,
+				density_profile,
+				realization_profile,
+				position_rng
+			)
 			if not bool(candidate.get("ok", false)):
 				last_error = "Placement failed for Distribution '%s' instance %d: %s" % [out.id, i, String(candidate.get("error", "unknown placement failure"))]
 				return false
 			p = candidate["position"]
 		solver.register_occupancy(p, radius, "%s:%03d" % [out.id, i])
-		out.instances.append(_instance(out.id, i, prototype_ids[i], instance_scales[i], p, solver.rng.randf_range(-PI, PI)))
+		var yaw := solver.local_rng(out.id, i, YAW_SEED_SALT).randf_range(-PI, PI)
+		out.instances.append(_instance(out.id, i, prototype_ids[i], instance_scales[i], p, yaw))
 	return true
 
 func _weighted_candidate(
@@ -441,16 +470,17 @@ func _weighted_candidate(
 	solver: PlacementSolver,
 	domain: Rect2,
 	density_profile: Dictionary,
-	realization_profile: Dictionary = {}
+	realization_profile: Dictionary,
+	candidate_rng: RandomNumberGenerator
 ) -> Dictionary:
 	if density_profile.is_empty() and realization_profile.is_empty():
-		return solver.try_resolve_candidate(placement, radius, context, domain)
+		return solver.try_resolve_candidate(placement, radius, context, domain, candidate_rng)
 
 	var best_position: Vector2 = Vector2.ZERO
 	var best_weight: float = -1.0
 	var found: bool = false
 	for _attempt in range(WEIGHTED_ATTEMPTS):
-		var result: Dictionary = solver.try_resolve_candidate(placement, radius, context, domain)
+		var result: Dictionary = solver.try_resolve_candidate(placement, radius, context, domain, candidate_rng)
 		if not bool(result.get("ok", false)):
 			continue
 		var candidate: Vector2 = result["position"]
@@ -462,7 +492,7 @@ func _weighted_candidate(
 			best_position = candidate
 			best_weight = weight
 			found = true
-		if solver.rng.randf() <= weight:
+		if candidate_rng.randf() <= weight:
 			return {"ok": true, "position": candidate}
 	if found:
 		return {"ok": true, "position": best_position}
@@ -641,10 +671,20 @@ func _relation_target(relations: Array, kind: String) -> String:
 
 func _yaw_toward_road(p: Vector2, network: ResolvedNetwork, solver: PlacementSolver) -> float:
 	if network == null:
-		return solver.rng.randf_range(-PI, PI)
+		return 0.0
 	var q := solver.nearest_point_on_network(p, network)
 	var direction := q - p
 	return atan2(direction.x, direction.y)
+
+func _radical_inverse(index: int, base: int) -> float:
+	var result := 0.0
+	var fraction := 1.0 / float(base)
+	var value := index
+	while value > 0:
+		result += float(value % base) * fraction
+		value = int(value / base)
+		fraction /= float(base)
+	return result
 
 func _instance(distribution_id: String, index: int, prototype_id: String, scale: float, p: Vector2, yaw: float) -> Dictionary:
 	return {

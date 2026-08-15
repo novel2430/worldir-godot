@@ -14,7 +14,7 @@
     ],
     "distributions": [
       {"id":"houses","type":"house","placement":{"relations":[{"type":"along","target":"main_road"}]},"population":{"amount":{"mode":"count","value":12}}},
-      {"id":"trees","type":"tree","placement":{"relations":[{"type":"inside","target":"forest"},{"type":"far_from","target":"graveyard"}]},"population":{"amount":{"mode":"density","value":"medium"},"arrangement":{"type":"random"}}},
+      {"id":"trees","type":"tree","placement":{"relations":[{"type":"inside","target":"forest"},{"type":"far_from","target":"graveyard"}]},"population":{"amount":{"mode":"density","value":"medium"}}},
       {"id":"tombstones","type":"tombstone","placement":{"relations":[{"type":"inside","target":"graveyard"}]},"population":{"amount":{"mode":"count","value":18},"arrangement":{"type":"uniform"}}}
     ]
   },

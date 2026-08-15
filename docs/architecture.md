@@ -614,6 +614,12 @@ occupancy。Dressing 只能填充剩余空间，放不满时产生 warning，而
 lowering 失败。
 ```
 
+Region lowering 内部先按 relation dependency 得到 provisional seed，再由
+`RegionClaimResolver` 使用 Backend 配置的有限面积预算生成最终领地。同层 Region
+使用与输入数组顺序无关的 power score 仲裁重叠区域，因此不会自动把整个世界平分；
+没有任何正影响力的区域继续使用基础 meadow surface。`inside` 建立父子层级，子域只
+能落在父 polygon 内，但不会从父 Region 的语义成员关系中扣除该区域。
+
 例如：
 
 ```text
@@ -1532,6 +1538,14 @@ Success
         ↓
 Commit
 ```
+
+当前 `SceneDiff` 的输入严格是 old/new `ResolvedWorld`，按 resolved ID 输出
+added / removed / changed / unchanged；具有 Prototype 与 Transform 的对象进一步输出
+moved / replaced。它不读取 `inside`、`near` 等 IR relation。`SceneTransition` 直接消费
+这些 resolved records：unchanged Node 保留原 instance identity，变化对象执行局部生长、
+下沉、移动或 crossfade，并由有限 spatial stagger 与轻量 ground ripple 统一视觉语言。
+Terrain 仍是整体 mesh，但只在 ripple 峰值替换；Player、Camera 与其他非 generated Node
+不参与 patch。
 
 ---
 

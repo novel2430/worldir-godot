@@ -445,9 +445,10 @@ func _test_large_scale_region_realization(catalog: PrototypeCatalog) -> void:
     var forest_rect: Rect2 = _polygon_aabb(forest_a.polygon)
     var coast_rect: Rect2 = _polygon_aabb(coast_a.polygon)
     assert(forest_rect.size.x > 45.0)
-    assert(forest_rect.size.y > 110.0)
+    assert(forest_rect.size.y > 70.0)
     assert(coast_rect.size.x > 40.0)
-    assert(coast_rect.size.y > 110.0)
+    assert(coast_rect.size.y > 70.0)
+    assert(_polygon_intersection_area(forest_a.polygon, coast_a.polygon) < 0.01)
     assert(is_equal_approx(forest_rect.position.x, a.world_bounds.position.x))
     assert(is_equal_approx(coast_rect.end.x, a.world_bounds.end.x))
 
@@ -509,13 +510,13 @@ func _test_network_placement_relations(catalog: PrototypeCatalog) -> void:
 
     var has_near_point := false
     for point in near_road.curve_points:
-        if backend.solver.distance_to_target(Vector2(point.x, point.z), "town", context) <= PlacementSolver.NEAR_THRESHOLD_M:
+        if backend.solver.distance_to_target(Vector2(point.x, point.z), "town", context) <= backend.solver.near_threshold_m:
             has_near_point = true
     assert(has_near_point)
 
     var has_far_point := false
     for point in far_path.curve_points:
-        if backend.solver.distance_to_target(Vector2(point.x, point.z), "town", context) >= PlacementSolver.FAR_THRESHOLD_M:
+        if backend.solver.distance_to_target(Vector2(point.x, point.z), "town", context) >= backend.solver.far_threshold_m:
             has_far_point = true
     assert(has_far_point)
 
@@ -563,7 +564,7 @@ func _test_network_inside_and_houses_along(catalog: PrototypeCatalog) -> void:
     var repeated_road: ResolvedNetwork = repeated.find_network("main_road")
     var houses: ResolvedDistribution = resolved.find_distribution("houses")
     assert(town != null and road != null and repeated_road != null and houses != null)
-    assert(houses.instances.size() == DistributionLowerer.DEFAULT_POPULATION_BUDGET)
+    assert(houses.instances.size() == backend.distribution_lowerer.default_population_budget)
     var expected_start := backend.solver.anchor_point("south")
     var expected_finish := backend.solver.anchor_point("north")
     var actual_start := Vector2(road.curve_points[0].x, road.curve_points[0].z)
@@ -584,7 +585,7 @@ func _test_network_inside_and_houses_along(catalog: PrototypeCatalog) -> void:
         var nearest := backend.solver.nearest_point_on_network(p, road)
         var direction_to_road := Vector3(nearest.x - p.x, 0.0, nearest.y - p.y).normalized()
         assert(Geometry2D.is_point_in_polygon(p, town.polygon))
-        assert(p.distance_to(nearest) <= PlacementSolver.ALONG_THRESHOLD_M + 0.001)
+        assert(p.distance_to(nearest) <= backend.solver.along_threshold_m + 0.001)
         assert(p.distance_to(nearest) >= road.width * 0.5 + 5.0)
         assert(transform.basis.z.normalized().dot(direction_to_road) >= cos(deg_to_rad(12.1)))
 
@@ -609,8 +610,8 @@ func _test_along_preserves_other_relations(base_ir: Dictionary, catalog: Prototy
     for instance in resolved_houses.instances:
         var transform: Transform3D = instance["transform"]
         var p := Vector2(transform.origin.x, transform.origin.z)
-        assert(p.distance_to(church_p) >= PlacementSolver.FAR_THRESHOLD_M - 0.001)
-        assert(p.distance_to(backend.solver.nearest_point_on_network(p, road)) <= PlacementSolver.ALONG_THRESHOLD_M + 0.001)
+        assert(p.distance_to(church_p) >= backend.solver.far_threshold_m - 0.001)
+        assert(p.distance_to(backend.solver.nearest_point_on_network(p, road)) <= backend.solver.along_threshold_m + 0.001)
 
 func _test_unsatisfiable_placement_fails(base_ir: Dictionary, catalog: PrototypeCatalog) -> void:
     var ir: Dictionary = base_ir.duplicate(true)
@@ -693,6 +694,7 @@ func _expected_density_count(
     density: String,
     usable_area: float
 ) -> int:
+    var configured_lowerer := WorldBackend.new().distribution_lowerer
     var footprint := Vector2.ZERO
     var preferred_spacing := 0.0
     for prototype_id in catalog.get_prototype_ids(semantic_type):
@@ -701,13 +703,13 @@ func _expected_density_count(
         footprint.x = maxf(footprint.x, candidate_footprint.x)
         footprint.y = maxf(footprint.y, candidate_footprint.y)
         preferred_spacing = maxf(preferred_spacing, float(meta["population_spacing"]))
-    var spacing := preferred_spacing * float(DistributionLowerer.DENSITY_SPACING_MULTIPLIERS[density])
+    var spacing := preferred_spacing * float(configured_lowerer.density_spacing_multipliers[density])
     var area_per_instance := (
         (footprint.x + spacing)
         * (footprint.y + spacing)
-        * DistributionLowerer.RANDOM_PACKING_LOSS
+        * configured_lowerer.random_packing_loss
     )
-    var cap := int(DistributionLowerer.POPULATION_CAPS.get(semantic_type, DistributionLowerer.DEFAULT_POPULATION_CAP))
+    var cap := int(configured_lowerer.population_caps.get(semantic_type, DistributionLowerer.DEFAULT_POPULATION_CAP))
     return clampi(int(round(usable_area / area_per_instance)), 1, cap)
 
 func _polygon_aabb(poly: PackedVector2Array) -> Rect2:
@@ -721,6 +723,15 @@ func _polygon_aabb(poly: PackedVector2Array) -> Rect2:
         min_y = minf(min_y, p.y)
         max_y = maxf(max_y, p.y)
     return Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
+
+func _polygon_intersection_area(a: PackedVector2Array, b: PackedVector2Array) -> float:
+    var area := 0.0
+    for polygon in Geometry2D.intersect_polygons(a, b):
+        var signed_area := 0.0
+        for index in range(polygon.size()):
+            signed_area += polygon[index].cross(polygon[(index + 1) % polygon.size()])
+        area += absf(signed_area * 0.5)
+    return area
 
 func _distance_to_polygon_edge(point: Vector2, polygon: PackedVector2Array) -> float:
     var result := INF

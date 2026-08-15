@@ -13,7 +13,7 @@
     ],
     "distributions": [
       {"id":"houses","type":"house","placement":{"relations":[{"type":"along","target":"main_road"}]},"population":{"amount":{"mode":"count","value":12}}},
-      {"id":"trees","type":"tree","placement":{"relations":[{"type":"inside","target":"forest"}]},"population":{"amount":{"mode":"density","value":"high"},"arrangement":{"type":"random"}}}
+      {"id":"trees","type":"tree","placement":{"relations":[{"type":"inside","target":"forest"}]},"population":{"amount":{"mode":"density","value":"high"}}}
     ]
   },
   "runtime_bindings": [],

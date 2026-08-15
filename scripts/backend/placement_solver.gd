@@ -6,14 +6,38 @@ const NEAR_THRESHOLD_M := 20.0
 const FAR_THRESHOLD_M := 28.0
 const ALONG_THRESHOLD_M := 14.0
 
-var world_bounds := Rect2(-80.0, -80.0, 160.0, 160.0)
+var world_bounds := Rect2()
+var near_threshold_m := NEAR_THRESHOLD_M
+var far_threshold_m := FAR_THRESHOLD_M
+var along_threshold_m := ALONG_THRESHOLD_M
+var world_seed := 1
 var rng := RandomNumberGenerator.new()
 var occupied: Array = [] # [{position: Vector2, radius: float, id: String}]
 
-func configure(bounds: Rect2, seed_value: int) -> void:
+func configure(
+    bounds: Rect2,
+    seed_value: int,
+    configured_near_threshold_m: float = NEAR_THRESHOLD_M,
+    configured_far_threshold_m: float = FAR_THRESHOLD_M,
+    configured_along_threshold_m: float = ALONG_THRESHOLD_M
+) -> void:
     world_bounds = bounds
+    near_threshold_m = configured_near_threshold_m
+    far_threshold_m = configured_far_threshold_m
+    along_threshold_m = configured_along_threshold_m
+    world_seed = seed_value
     rng.seed = seed_value
     occupied.clear()
+
+func local_rng(object_id: String, instance_index: int = 0, salt: int = 0) -> RandomNumberGenerator:
+    var local := RandomNumberGenerator.new()
+    local.seed = (
+        world_seed
+        ^ int(object_id.hash())
+        ^ int(instance_index * 0x1F123BB5)
+        ^ salt
+    )
+    return local
 
 func register_occupancy(position: Vector2, radius: float, object_id: String) -> void:
     occupied.append({"position": position, "radius": radius, "id": object_id})
@@ -67,7 +91,8 @@ func try_resolve_candidate(
     placement: Dictionary,
     radius: float,
     context: Dictionary,
-    preferred_rect: Rect2 = Rect2()
+    preferred_rect: Rect2 = Rect2(),
+    candidate_rng: RandomNumberGenerator = null
 ) -> Dictionary:
     var domain := placement_domain(placement, context, preferred_rect)
     if not domain.has_area():
@@ -76,10 +101,11 @@ func try_resolve_candidate(
             "error": "Placement constraints have no overlapping spatial domain",
         }
 
+    var active_rng := candidate_rng if candidate_rng != null else rng
     for _attempt in range(MAX_ATTEMPTS):
         var p := Vector2(
-            rng.randf_range(domain.position.x, domain.end.x),
-            rng.randf_range(domain.position.y, domain.end.y)
+            active_rng.randf_range(domain.position.x, domain.end.x),
+            active_rng.randf_range(domain.position.y, domain.end.y)
         )
         if is_candidate_valid(p, placement, radius, context):
             return {"ok": true, "position": p}
@@ -205,11 +231,11 @@ func _satisfies_relations(p: Vector2, relations: Array, context: Dictionary) -> 
         match kind:
             "near":
                 var near_distance := distance_to_target(p, target, context)
-                if near_distance > NEAR_THRESHOLD_M:
+                if near_distance > near_threshold_m:
                     return false
             "far_from":
                 var far_distance := distance_to_target(p, target, context)
-                if far_distance < FAR_THRESHOLD_M:
+                if far_distance < far_threshold_m:
                     return false
             "direction_of":
                 var center := target_center(target, context)
@@ -219,7 +245,7 @@ func _satisfies_relations(p: Vector2, relations: Array, context: Dictionary) -> 
                 var net: ResolvedNetwork = context.get("networks", {}).get(target)
                 if net == null:
                     return false
-                if p.distance_to(nearest_point_on_network(p, net)) > ALONG_THRESHOLD_M:
+                if p.distance_to(nearest_point_on_network(p, net)) > along_threshold_m:
                     return false
             "inside":
                 pass
@@ -298,7 +324,7 @@ func _target_center(target: String, context: Dictionary, visiting: Dictionary) -
             if away == Vector2.ZERO:
                 away = Vector2(1.0, 0.0)
             visiting.erase(target)
-            return target_point + away * FAR_THRESHOLD_M * 1.5
+            return target_point + away * far_threshold_m * 1.5
 
     visiting.erase(target)
     return world_bounds.get_center()

@@ -2,7 +2,8 @@ class_name ResolvedWorld
 extends Resource
 
 var seed: int = 1
-var world_bounds: Rect2 = Rect2(-80.0, -80.0, 160.0, 160.0)
+# WorldBackend assigns this from the live backend configuration before lowering.
+var world_bounds: Rect2 = Rect2()
 # Kept as Resource here so headless script entry points do not depend on the
 # editor-generated global-class cache for the backend-only ResolvedTerrain.
 var terrain: Resource = null

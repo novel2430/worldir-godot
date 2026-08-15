@@ -1,7 +1,11 @@
 class_name SceneRuntime
 extends Node
 
+const SceneTransitionScript = preload("res://scripts/runtime/scene_transition.gd")
+
 var road_builder := RoadBuilder.new()
+var scene_diff := SceneDiff.new()
+var scene_transition: RefCounted = SceneTransitionScript.new()
 var _terrain_material_cache: ShaderMaterial = null
 var _water_material_cache: ShaderMaterial = null
 var _foam_material_cache: ShaderMaterial = null
@@ -58,6 +62,20 @@ func commit_candidate(world_root: Node3D, candidate: Node3D) -> void:
         child.queue_free()
     world_root.add_child(candidate)
     candidate.name = "GeneratedWorld"
+
+func transition_candidate(
+    world_root: Node3D,
+    candidate: Node3D,
+    old_world: ResolvedWorld,
+    new_world: ResolvedWorld
+) -> Dictionary:
+    var active_root := world_root.get_node_or_null("GeneratedWorld") as Node3D
+    if active_root == null or old_world == null:
+        commit_candidate(world_root, candidate)
+        return scene_diff.compare(old_world, new_world)
+    var patch := scene_diff.compare(old_world, new_world)
+    await scene_transition.apply(active_root, candidate, patch, new_world)
+    return patch
 
 func _instantiate(prototype_id: String, catalog: PrototypeCatalog) -> Node3D:
     var scene := catalog.get_scene(prototype_id)
