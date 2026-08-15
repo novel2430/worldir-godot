@@ -65,6 +65,9 @@ Implemented:
 - World IR V2 root primitives: Region / Network / Entity / Distribution.
 - Region anchor lowering to concrete polygons.
 - Procedural road/path lowering to deterministic polyline/ribbon geometry.
+- Deterministic low-frequency macro terrain with forest/settlement/coast/road/building surface influences.
+- One stylized world-surface shader blending meadow, forest floor, packed dirt, sand, and road dirt without photographic PBR textures.
+- Boundary-touching Coast Regions resolve into deterministic shoreline geometry, submerged terrain, wet sand, foam, and a lightweight stylized ocean surface.
 - Prototype-aware Entity placement.
 - Distribution `count` / TSCN-footprint and usable-area-scaled qualitative `density` / `density_profile.gradient` weighted lowering.
 - Resolved-polygon Forest Dressing with area-scaled, seeded edge vegetation, clustered rocks/bushes, rare bare-tree accents, and shared occupancy avoidance.
@@ -78,8 +81,9 @@ Implemented:
 
 Deliberately still simple:
 
-- Region geometry uses lightly irregular deterministic polygons and feathered surfaces; there is still no terrain solver.
-- Roads bend lightly but have no terrain-aware routing.
+- Region geometry uses lightly irregular deterministic polygons as mask domains; V0 terrain is one bounded 129×129 mesh, not a streaming/erosion terrain system.
+- Roads bend lightly; terrain is graded beneath the core/shoulder, the ribbon is longitudinally densified, and both edges independently sample terrain. Topology routing remains a simple deterministic heuristic.
+- Ocean V0 is opaque, bounded to world-edge Coast realization, and intentionally has no swimming, buoyancy, reflection probe, or transparent depth rendering.
 - Density gradient uses qualitative weighted sampling; it is intentionally not a numeric density-field solver.
 - Scene transition is an atomic rebuild/swap extension point, not a visual dissolve/growth effect yet.
 - Runtime Fact gameplay aggregation is demonstrated by a deterministic demo fact, not tree-cutting gameplay.
@@ -99,6 +103,9 @@ godot --headless --path . --script tests/test_contract.gd
 godot --headless --path . --script tests/test_backend.gd
 godot --headless --path . --script tests/test_forest_dressing.gd
 godot --headless --path . --script tests/test_road_builder.gd
+godot --headless --path . --script tests/test_terrain_surface.gd
+godot --headless --path . --script tests/test_main_scene.gd
+godot --headless --path . --script tests/test_coast_water.gd
 ```
 
 ## Architecture invariants
@@ -110,6 +117,8 @@ godot --headless --path . --script tests/test_road_builder.gd
 - Runtime spatial payload never goes to the Compiler Server.
 - Compile response is a candidate until lowering + scene build succeeds.
 - Resolved World contains value data, never live Node references.
+- Resolved Terrain is backend value data; Runtime renders its heights and RGBA surface masks without re-reading World IR.
+- Resolved Water is backend value data derived from a boundary-touching resolved Coast polygon; it never becomes a World IR object.
 - Backend-owned dressing remains separate from IR-owned Distributions and runs only after explicit semantics claim occupancy.
 
 ## Contract enforcement

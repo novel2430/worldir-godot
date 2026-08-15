@@ -900,16 +900,20 @@ add_child()
 ```text
 ResolvedNetwork
 ↓
-RoadBuilder
+TerrainResolver grades core + shoulder around the resolved curve
 ↓
-Curve
+RoadBuilder receives ResolvedTerrain
 ↓
-程序生成 mesh
+densify curve + sample left/right edge heights
 ↓
 material
 ↓
-collision
+collision reuses final ribbon faces
 ```
+
+Road Mesh 仍然保留，因为它表达明确的 network width 与顶面；但它不再是固定
+Y 的独立板。Terrain 是高度 source of truth，road core 下方被横向整平，肩部逐渐
+回接自然地形。Road surface 不自行投射阴影，避免两个近重合表面之间形成黑沟。
 
 ---
 
@@ -920,6 +924,24 @@ ResolvedRegion
 ↓
 ground / surface renderer
 ```
+
+边界接触型 `coast` 额外产生 Backend-owned water realization：
+
+```text
+Resolved Coast polygon + world bounds
+↓
+CoastResolver（推导 seaward direction + seeded shoreline）
+↓
+ResolvedWater
+├── sea level
+├── shoreline
+└── ocean polygon
+↓
+Terrain beach/submerged profile + Runtime water/foam mesh
+```
+
+它不会写回 World IR。没有接触 world boundary 的 Coast 因为无法可靠判断海向，
+V0 只保留 sand surface 并产生 Backend warning，不擅自生成内陆海或湖。
 
 ---
 
@@ -961,6 +983,8 @@ environment dressing 保持可辨识。
 Main
 │
 ├── WorldRoot
+│   ├── Terrain
+│   ├── Water
 │   ├── Regions
 │   ├── Networks
 │   ├── Entities
@@ -980,9 +1004,15 @@ Main
 ```text
 WorldRoot
 │
+├── Terrain
+│   └── WorldSurface (height mesh + RGBA influence masks + collision)
+│
+├── Water
+│   └── BackendOcean (stylized surface + shoreline foam)
+│
 ├── Regions
-│   ├── ForestGround
-│   └── CoastGround
+│   ├── Forest (semantic/debug node; no stacked ground mesh)
+│   └── Coast (semantic/debug node; no stacked ground mesh)
 │
 ├── Networks
 │   └── MainRoad
@@ -1610,7 +1640,7 @@ ResolvedWorld
 ↓
 instantiate TSCN
 generate road mesh
-generate region surface
+generate one terrain/world surface from resolved height + mask data
 set transforms
 add collision
 ↓

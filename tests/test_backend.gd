@@ -242,19 +242,23 @@ func _test_runtime_instantiates_catalog_assets(resolved: ResolvedWorld, catalog:
     assert(church.find_children("*", "MeshInstance3D", true, false).size() > 0)
     var distribution_nodes := candidate.get_node("Distributions").find_children("*", "WorldPrototype", true, false)
     assert(not distribution_nodes.is_empty())
-    var forest_mesh := candidate.get_node("Regions/forest").get_child(0) as MeshInstance3D
-    var forest_material := forest_mesh.material_override as StandardMaterial3D
-    var forest_arrays: Array = forest_mesh.mesh.surface_get_arrays(0)
-    var forest_colors: PackedColorArray = forest_arrays[Mesh.ARRAY_COLOR]
-    assert(forest_material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA)
-    assert(forest_material.vertex_color_use_as_albedo)
-    assert(not forest_colors.is_empty())
-    var has_feathered_edge := false
-    var has_opaque_interior := false
-    for color in forest_colors:
-        has_feathered_edge = has_feathered_edge or color.a < 0.10
-        has_opaque_interior = has_opaque_interior or color.a > 0.99
-    assert(has_feathered_edge and has_opaque_interior)
+    # Resolved Regions remain inspectable semantic nodes, but their old stacked
+    # color polygons are replaced by one terrain surface carrying blended masks.
+    assert(candidate.get_node("Regions/forest").get_child_count() == 0)
+    var terrain_body := candidate.get_node("Terrain/WorldSurface") as StaticBody3D
+    var terrain_mesh := terrain_body.get_node("TerrainMesh") as MeshInstance3D
+    var terrain_collision := terrain_body.get_node("TerrainCollision") as CollisionShape3D
+    assert(terrain_mesh.material_override is ShaderMaterial)
+    assert(terrain_collision.shape is ConcavePolygonShape3D)
+    var terrain_arrays: Array = terrain_mesh.mesh.surface_get_arrays(0)
+    var terrain_colors: PackedColorArray = terrain_arrays[Mesh.ARRAY_COLOR]
+    assert(terrain_colors.size() == resolved.terrain.grid_size * resolved.terrain.grid_size)
+    var has_forest_influence := false
+    var has_local_dirt_influence := false
+    for color in terrain_colors:
+        has_forest_influence = has_forest_influence or color.r > 0.5
+        has_local_dirt_influence = has_local_dirt_influence or color.a > 0.5
+    assert(has_forest_influence and has_local_dirt_influence)
     candidate.free()
     runtime.free()
 

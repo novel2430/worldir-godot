@@ -1,10 +1,15 @@
 class_name WorldBackend
 extends RefCounted
 
+const TerrainResolverScript = preload("res://scripts/backend/terrain_resolver.gd")
+const CoastResolverScript = preload("res://scripts/backend/coast_resolver.gd")
+
 var region_lowerer := RegionLowerer.new()
 var network_lowerer := NetworkLowerer.new()
 var entity_lowerer := EntityLowerer.new()
 var distribution_lowerer := DistributionLowerer.new()
+var terrain_resolver: RefCounted = TerrainResolverScript.new()
+var coast_resolver: RefCounted = CoastResolverScript.new()
 var forest_dresser := ForestDresser.new()
 var solver := PlacementSolver.new()
 
@@ -77,6 +82,9 @@ func lower(
 	# Dressing is derived only after every explicit semantic object has claimed
 	# occupancy. It is backend-owned, best effort, and cannot fail World lowering.
 	if out.errors.is_empty():
+		out.waters = coast_resolver.resolve(out)
+		out.terrain = terrain_resolver.resolve(out, catalog)
+		terrain_resolver.conform_world(out)
 		forest_dresser.dress(out, catalog, solver)
 
 	return out

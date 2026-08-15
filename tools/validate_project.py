@@ -6,10 +6,15 @@ root = Path(__file__).resolve().parents[1]
 required = [
     "project.godot", "scenes/main.tscn", "scripts/app/world_coordinator.gd",
     "scripts/backend/world_backend.gd", "scripts/runtime/scene_runtime.gd",
+    "scripts/backend/terrain_resolver.gd", "scripts/resolved/resolved_terrain.gd",
+    "scripts/backend/coast_resolver.gd", "scripts/resolved/resolved_water.gd",
     "scripts/backend/forest_dresser.gd", "scripts/resolved/resolved_decoration.gd",
     "assets/prototypes/nature/tree_01.tscn", "assets/prototypes/nature/rock_01.tscn",
     "assets/prototypes/nature/bush_01.tscn", "assets/prototypes/nature/grass_01.tscn",
     "assets/prototypes/nature/dead_tree_01.tscn", "data/fixtures/coastal_town_initial.json",
+    "tests/test_terrain_surface.gd",
+    "tests/test_main_scene.gd",
+    "tests/test_coast_water.gd",
 ]
 missing = [p for p in required if not (root / p).exists()]
 if missing:

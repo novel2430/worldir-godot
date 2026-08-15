@@ -1,5 +1,7 @@
 extends SceneTree
 
+const TerrainResolverScript = preload("res://scripts/backend/terrain_resolver.gd")
+
 var failures := 0
 
 func _init() -> void:
@@ -55,8 +57,9 @@ func _run() -> void:
     var road_arrays: Array = road_mesh_instance.mesh.surface_get_arrays(0)
     var road_vertices: PackedVector3Array = road_arrays[Mesh.ARRAY_VERTEX]
     var road_normals: PackedVector3Array = road_arrays[Mesh.ARRAY_NORMAL]
-    var expected_vertex_count: int = (network.curve_points.size() - 1) * 6
-    _expect(road_vertices.size() == expected_vertex_count, "Each road segment must produce two triangles")
+    var original_vertex_count: int = (network.curve_points.size() - 1) * 6
+    _expect(road_vertices.size() > original_vertex_count, "Terrain roads must densify long centerline segments")
+    _expect(road_vertices.size() % 6 == 0, "Each densified road segment must produce two triangles")
     _expect(road_normals.size() == road_vertices.size(), "Every road vertex must have a normal")
 
     for triangle_start in range(0, road_vertices.size(), 3):
@@ -67,11 +70,14 @@ func _run() -> void:
         )
         # Godot front faces use clockwise winding. For an upward-facing XZ
         # surface, the raw cross product therefore points toward -Y.
-        _expect(geometric_normal.dot(Vector3.DOWN) > 0.999, "Road triangle winding must face upward in Godot")
+        _expect(geometric_normal.dot(Vector3.DOWN) > 0.97, "Road triangle winding must face upward in Godot")
         _expect(not geometric_normal.is_zero_approx(), "Road triangles must not be degenerate")
 
     for normal in road_normals:
-        _expect(normal.dot(Vector3.UP) > 0.999, "Road lighting normals must point upward")
+        _expect(normal.dot(Vector3.UP) > 0.97, "Road lighting normals must follow terrain while remaining upward")
+    for vertex in road_vertices:
+        var expected_edge_height: float = resolved.terrain.sample_height(Vector2(vertex.x, vertex.z)) + resolved.terrain.road_surface_offset
+        _expect(is_equal_approx(vertex.y, expected_edge_height), "Both road edges must independently sample terrain height")
 
     var material := road_mesh_instance.material_override as StandardMaterial3D
     _expect(material != null, "Road mesh must have a material")
@@ -79,8 +85,16 @@ func _run() -> void:
         _expect(material.cull_mode == BaseMaterial3D.CULL_BACK, "Road must remain backface-culled")
         _expect(material.albedo_color.is_equal_approx(Color(0.29, 0.245, 0.18)), "Road must use the muted warm dirt palette")
         _expect(is_equal_approx(material.roughness, 1.0), "Road material must stay fully rough")
-    _expect(is_equal_approx(road_mesh_instance.mesh.get_aabb().position.y, 0.08), "Road mesh must retain its visible height")
+    _expect(road_mesh_instance.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "Surface road must not cast a black trench onto terrain")
+    var has_height_variation := false
+    var first_height := network.curve_points[0].y
+    for point in network.curve_points:
+        var terrain_height: float = resolved.terrain.sample_height(Vector2(point.x, point.z))
+        _expect(is_equal_approx(point.y, terrain_height + TerrainResolverScript.ROAD_SURFACE_OFFSET), "Road centerline must conform to terrain with a visible offset")
+        has_height_variation = has_height_variation or not is_equal_approx(point.y, first_height)
+    _expect(has_height_variation, "A world road should inherit non-flat macro terrain")
     _test_curved_road_joins()
+    _test_sloped_road_collision()
 
     candidate.free()
     scene_runtime.free()
@@ -142,7 +156,28 @@ func _test_curved_road_joins() -> void:
         _expect(not geometric_normal.is_zero_approx(), "Curved road triangles must not be degenerate")
         _expect(geometric_normal.dot(Vector3.DOWN) > 0.999, "Curved road top faces must keep upward Godot winding")
 
-    _expect(road.get_child_count() == segment_count + 1, "Curved road collision must contain one body per cleaned segment")
+    var collision := road.get_node_or_null("RoadCollision/CollisionShape3D") as CollisionShape3D
+    _expect(collision != null and collision.shape is ConcavePolygonShape3D, "Road collision must reuse the final ribbon geometry")
+    if collision != null:
+        _expect((collision.shape as ConcavePolygonShape3D).get_faces().size() == vertices.size(), "Road collision faces must exactly match the visible mesh")
+    road.free()
+
+func _test_sloped_road_collision() -> void:
+    var network := ResolvedNetwork.new()
+    network.id = "sloped_road"
+    network.width = 4.0
+    network.curve_points = PackedVector3Array([
+        Vector3(-4.0, -0.5, -4.0),
+        Vector3(2.0, 1.4, 6.0),
+    ])
+    var road := RoadBuilder.new().build(network)
+    var mesh_instance := road.get_node("RoadMesh") as MeshInstance3D
+    var normals: PackedVector3Array = mesh_instance.mesh.surface_get_arrays(0)[Mesh.ARRAY_NORMAL]
+    for normal in normals:
+        _expect(normal.y > 0.9 and absf(normal.z) > 0.01, "Sloped road normals must reflect the ribbon slope")
+    var collision := road.get_node("RoadCollision/CollisionShape3D") as CollisionShape3D
+    _expect(collision.shape is ConcavePolygonShape3D, "Sloped road collision must remain an exact concave surface")
+    _expect((collision.shape as ConcavePolygonShape3D).get_faces().size() == mesh_instance.mesh.get_faces().size(), "Sloped collision must match its visible road")
     road.free()
 
 func _triangle_normal(a: Vector3, b: Vector3, c: Vector3) -> Vector3:

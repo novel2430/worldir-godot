@@ -40,7 +40,7 @@ const RULES := {
 }
 const CANDIDATE_ATTEMPTS := 140
 const CLUSTER_SAMPLE_CHANCE := 0.82
-const GROUND_HEIGHT := 0.025
+const GROUND_OFFSET := 0.02
 const DRESSING_SEED_SALT := 0x44524553
 
 func dress(world: ResolvedWorld, catalog: PrototypeCatalog, solver: PlacementSolver) -> void:
@@ -113,7 +113,11 @@ func _dress_forest(
                 "prototype_id": prototype_id,
                 "transform": Transform3D(
                     Basis(Vector3.UP, rng.randf_range(-PI, PI)).scaled(Vector3.ONE * scale),
-                    Vector3(point.x, GROUND_HEIGHT, point.y)
+                    Vector3(
+                        point.x,
+                        (world.terrain.sample_height(point) if world.terrain != null else 0.0) + GROUND_OFFSET,
+                        point.y
+                    )
                 ),
                 "occupancy_radius": radius,
             })

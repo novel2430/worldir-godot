@@ -24,23 +24,13 @@ background_mode = 2
 sky = SubResource("Sky")
 ambient_light_source = 3
 ambient_light_color = Color(0.76, 0.79, 0.75, 1)
-ambient_light_energy = 0.72
+ambient_light_energy = 0.86
 reflected_light_source = 2
 fog_enabled = true
 fog_light_color = Color(0.71, 0.72, 0.66, 1)
 fog_light_energy = 0.45
 fog_density = 0.0025
 fog_sky_affect = 0.35
-
-[sub_resource type="StandardMaterial3D" id="GroundMat"]
-albedo_color = Color(0.20, 0.225, 0.17, 1)
-roughness = 1.0
-
-[sub_resource type="BoxMesh" id="GroundMesh"]
-size = Vector3(160, 0.2, 160)
-
-[sub_resource type="BoxShape3D" id="GroundShape"]
-size = Vector3(160, 0.2, 160)
 
 [node name="Main" type="Node3D" unique_id=1988214654]
 
@@ -50,25 +40,15 @@ environment = SubResource("Env")
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=297099342]
 rotation_degrees = Vector3(-38, -35, 0)
 light_color = Color(1, 0.87, 0.73, 1)
-light_energy = 0.92
+light_energy = 0.84
 shadow_enabled = true
 directional_shadow_max_distance = 130.0
-
-[node name="BaseGround" type="StaticBody3D" parent="." unique_id=574659913]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.12, 0)
-
-[node name="Mesh" type="MeshInstance3D" parent="BaseGround" unique_id=1360565244]
-material_override = SubResource("GroundMat")
-mesh = SubResource("GroundMesh")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="BaseGround" unique_id=2057227259]
-shape = SubResource("GroundShape")
 
 [node name="WorldRoot" type="Node3D" parent="." unique_id=1997268314]
 unique_name_in_owner = true
 
 [node name="Player" parent="." unique_id=1467336534 instance=ExtResource("6")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 48)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 48)
 
 [node name="WorldState" type="Node" parent="." unique_id=2142624567]
 unique_name_in_owner = true
