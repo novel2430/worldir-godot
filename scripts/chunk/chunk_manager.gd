@@ -27,6 +27,8 @@ var _pin_counts: Dictionary = {}
 var _preview_queue: Dictionary = {}
 var _latest_committed_ir: Dictionary = {}
 var _latest_committed_revision := -1
+var _preview_transition_in_flight := false
+var _preview_transition_coord := Vector2i.ZERO
 
 func configure(
 	catalog: PrototypeCatalog,
@@ -41,13 +43,20 @@ func configure(
 	generator.configure(catalog)
 	if scene_runtime != null:
 		scene_runtime.prototype_catalog = catalog
+		var finished_callable := Callable(self, "_on_chunk_transition_finished")
+		if not scene_runtime.chunk_transition_finished.is_connected(finished_callable):
+			scene_runtime.chunk_transition_finished.connect(finished_callable)
 
 func _physics_process(_delta: float) -> void:
 	if auto_track_player and initialized and player != null:
 		update_player_world_position(player.global_position)
 
 func _process(_delta: float) -> void:
-	if initialized and not _preview_queue.is_empty():
+	if (
+		initialized
+		and not _preview_queue.is_empty()
+		and not _preview_transition_in_flight
+	):
 		process_preview_rebuilds(1)
 
 func initialize_world(
@@ -187,6 +196,7 @@ func ensure_chunk(coord: Vector2i) -> ChunkRecord:
 	record.streaming_state = ChunkRecord.StreamingState.GEOMETRY_READY
 	record.streaming_state = ChunkRecord.StreamingState.ENVIRONMENT_READY
 	chunk_record_changed.emit(record)
+	refresh_revision_boundary_visuals()
 	return record
 
 func set_target_revision(coord: Vector2i, target_revision: int) -> bool:
@@ -242,6 +252,8 @@ func request_rebuild(coord: Vector2i, ir_revision: int) -> bool:
 	return true
 
 func process_preview_rebuilds(max_count: int = 1) -> int:
+	if _preview_transition_in_flight:
+		return 0
 	var processed := 0
 	var coords: Array = _preview_queue.keys()
 	coords.sort_custom(func(a: Vector2i, b: Vector2i):
@@ -276,14 +288,29 @@ func process_preview_rebuilds(max_count: int = 1) -> int:
 		if record.target_ir_revision != revision:
 			request_rebuild(coord, record.target_ir_revision)
 			continue
-		if accept_rebuild(coord, candidate, true):
+		var transition_mode := SceneRuntime.TRANSITION_MODE_SILENT
+		if scene_runtime != null:
+			transition_mode = scene_runtime.preview_transition_mode(
+				current_chunk_coord,
+				coord,
+				get_chunk_root(coord)
+			)
+		if transition_mode == SceneRuntime.TRANSITION_MODE_LIGHT_REBASE:
+			_preview_transition_in_flight = true
+			_preview_transition_coord = coord
+		if accept_rebuild(coord, candidate, true, transition_mode):
 			preview_rebuild_completed.emit(coord, revision)
+		elif transition_mode == SceneRuntime.TRANSITION_MODE_LIGHT_REBASE:
+			_preview_transition_in_flight = false
+		if _preview_transition_in_flight:
+			break
 	return processed
 
 func accept_rebuild(
 	coord: Vector2i,
 	candidate: ResolvedChunk,
-	mount_immediately := true
+	mount_immediately := true,
+	transition_mode: String = SceneRuntime.TRANSITION_MODE_SILENT
 ) -> bool:
 	if candidate == null or candidate.coord != coord or not candidate.errors.is_empty():
 		return false
@@ -293,9 +320,20 @@ func accept_rebuild(
 	if record.target_ir_revision != candidate.revision:
 		return false
 	var previous := record.resolved_chunk
-	if mount_immediately and not _mount_candidate(candidate):
-		record.resolved_chunk = previous
-		return false
+	if mount_immediately:
+		var installed_scene := false
+		if previous != null and get_chunk_root(coord) != null:
+			installed_scene = _transition_rebuild_candidate(
+				coord,
+				previous,
+				candidate,
+				transition_mode
+			)
+		else:
+			installed_scene = _mount_candidate(candidate)
+		if not installed_scene:
+			record.resolved_chunk = previous
+			return false
 	record.accept_resolved(candidate)
 	if record.streaming_state == ChunkRecord.StreamingState.UNLOADED:
 		record.streaming_state = ChunkRecord.StreamingState.ENVIRONMENT_READY
@@ -324,6 +362,7 @@ func install_resolved_candidate(
 	if record.streaming_state == ChunkRecord.StreamingState.UNLOADED:
 		record.streaming_state = ChunkRecord.StreamingState.ENVIRONMENT_READY
 	chunk_record_changed.emit(record)
+	refresh_revision_boundary_visuals()
 	_emit_debug_state()
 	return true
 
@@ -343,7 +382,15 @@ func ensure_latest(coord: Vector2i) -> bool:
 	var candidate := generate_candidate(coord, target_ir, record.target_ir_revision)
 	if candidate == null:
 		return false
-	return accept_rebuild(coord, candidate, true)
+	# Entry is a correctness barrier, not a background visual event. Install the
+	# latest Candidate silently before promotion so old gameplay collision is
+	# never authoritative under the player.
+	return accept_rebuild(
+		coord,
+		candidate,
+		true,
+		SceneRuntime.TRANSITION_MODE_SILENT
+	)
 
 func prepare_player_entry(coord: Vector2i) -> bool:
 	var record := get_record(coord)
@@ -383,6 +430,7 @@ func update_player_world_position(world_position: Vector3) -> bool:
 	next_record.authority = ChunkRecord.AuthorityState.COMMITTED
 	next_record.streaming_state = ChunkRecord.StreamingState.ACTIVE
 	_apply_window_states()
+	refresh_revision_boundary_visuals()
 	current_chunk_changed.emit(old_coord, next_coord)
 	_emit_debug_state()
 	return true
@@ -396,6 +444,7 @@ func unload_chunk(coord: Vector2i) -> bool:
 	record.resolved_chunk = null
 	record.streaming_state = ChunkRecord.StreamingState.UNLOADED
 	chunk_record_changed.emit(record)
+	refresh_revision_boundary_visuals()
 	_emit_debug_state()
 	return true
 
@@ -422,6 +471,8 @@ func debug_snapshot() -> Dictionary:
 		"current_ir_revision": _latest_committed_revision,
 		"active_coords": _coord_values(ChunkMath.active_window_coords(current_chunk_coord)),
 		"records": records,
+		"preview_queue_size": _preview_queue.size(),
+		"preview_transition_in_flight": _preview_transition_in_flight,
 	}
 
 func debug_text() -> String:
@@ -576,6 +627,73 @@ func _mount_candidate(candidate: ResolvedChunk) -> bool:
 		return false
 	return true
 
+func _transition_rebuild_candidate(
+	coord: Vector2i,
+	previous: ResolvedChunk,
+	candidate: ResolvedChunk,
+	transition_mode: String
+) -> bool:
+	if scene_runtime == null:
+		return true
+	var chunk_root := get_chunk_root(coord)
+	if chunk_root == null:
+		return _mount_candidate(candidate)
+	var prepared := scene_runtime.prepare_chunk_transition(
+		previous,
+		candidate,
+		prototype_catalog
+	)
+	if prepared.is_empty():
+		return false
+	var candidate_scene := prepared.get("candidate_scene") as Node3D
+	if candidate_scene == null:
+		scene_runtime.discard_prepared_chunk_transition(prepared)
+		return false
+	scene_runtime.reconcile_revision_boundaries(
+		get_active_records(),
+		_active_chunk_roots(),
+		{coord: candidate},
+		{coord: candidate_scene}
+	)
+	var result: Variant = scene_runtime.apply_prepared_preview_transition(
+		chunk_root,
+		candidate,
+		prepared,
+		transition_mode
+	)
+	if typeof(result) != TYPE_DICTIONARY:
+		scene_runtime.discard_prepared_chunk_transition(prepared)
+		return false
+	chunk_root.set_meta("chunk_coord", coord)
+	chunk_root.set_meta("ir_revision", candidate.revision)
+	return true
+
+func refresh_revision_boundary_visuals() -> Dictionary:
+	if scene_runtime == null:
+		return {}
+	return scene_runtime.reconcile_revision_boundaries(
+		get_active_records(),
+		_active_chunk_roots()
+	)
+
+func _active_chunk_roots() -> Dictionary:
+	var roots := {}
+	for record: ChunkRecord in get_active_records():
+		var chunk_root := get_chunk_root(record.coord)
+		if chunk_root != null:
+			roots[record.coord] = chunk_root
+	return roots
+
+func _on_chunk_transition_finished(coord: Vector2i, mode: String) -> void:
+	if (
+		mode == SceneRuntime.TRANSITION_MODE_LIGHT_REBASE
+		and _preview_transition_in_flight
+		and coord == _preview_transition_coord
+	):
+		_preview_transition_in_flight = false
+		_preview_transition_coord = Vector2i.ZERO
+		_emit_debug_state()
+
 func _ir_for_revision(revision: int) -> Dictionary:
 	var value: Variant = _revision_ir.get(revision, {})
 	return value.duplicate(true) if typeof(value) == TYPE_DICTIONARY else {}
@@ -609,6 +727,8 @@ func _reset_failed_initialization() -> void:
 	_preview_queue.clear()
 	_latest_committed_ir = {}
 	_latest_committed_revision = -1
+	_preview_transition_in_flight = false
+	_preview_transition_coord = Vector2i.ZERO
 	current_chunk_coord = Vector2i.ZERO
 	initialized = false
 

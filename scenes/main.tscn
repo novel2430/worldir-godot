@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://dficvhot5htvc"]
+[gd_scene load_steps=14 format=3 uid="uid://dficvhot5htvc"]
 
 [ext_resource type="Script" uid="uid://jki1tmx26qs7" path="res://scripts/app/world_coordinator.gd" id="1"]
 [ext_resource type="Script" uid="uid://ctbiqxonjpddt" path="res://scripts/app/world_state.gd" id="2"]
@@ -7,6 +7,7 @@
 [ext_resource type="Script" uid="uid://iy83lnwm0gcw" path="res://scripts/interaction/runtime_fact_manager.gd" id="5"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/ui/prompt_panel.tscn" id="7"]
+[ext_resource type="Script" path="res://scripts/chunk/chunk_manager.gd" id="8_manager"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMaterial"]
 sky_top_color = Color(0.20, 0.36, 0.52, 1)
@@ -48,6 +49,7 @@ directional_shadow_max_distance = 130.0
 unique_name_in_owner = true
 
 [node name="Player" parent="." unique_id=1467336534 instance=ExtResource("6")]
+unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 48)
 
 [node name="WorldState" type="Node" parent="." unique_id=2142624567]
@@ -61,6 +63,10 @@ script = ExtResource("3")
 [node name="SceneRuntime" type="Node" parent="." unique_id=642078207]
 unique_name_in_owner = true
 script = ExtResource("4")
+
+[node name="ChunkManager" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("8_manager")
 
 [node name="RuntimeFactManager" type="Node" parent="." unique_id=1078958339]
 unique_name_in_owner = true

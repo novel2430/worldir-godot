@@ -75,6 +75,9 @@ Implemented:
 - `data/configs/backend.json` drives world size, default seed, spatial thresholds, and area-density realization parameters.
 - Stable Resolved SceneDiff reports object-level added/removed/changed or moved/replaced/unchanged records for incremental transitions.
 - Incremental World Rewrite transitions preserve unchanged Node identity; changed objects grow/fade/move/crossfade with bounded spatial stagger and a restrained local ground ripple.
+- V1 runtime materializes a real 3x3 window of deterministic 160m Chunks and routes Prompt edits through a pinned Current-Chunk revision transaction.
+- Current uses FULL_REWRITE, visible cardinal Preview uses a single-group LIGHT_REBASE, and far/invisible/streaming work uses SILENT installation.
+- Historical/latest population boundaries use a deterministic 16m visual band without changing Historical authority or revision provenance.
 - Distribution variants, yaw, candidates, clusters, and along-road slots use object-local deterministic streams; count changes preserve existing instance prefixes when spatial constraints remain compatible.
 - Regions use deterministic bounded claims: anchors and relations establish seeds, configured area budgets limit spread, same-layer Regions arbitrate contested ground without filling the world, and `inside` remains hierarchical overlap.
 - Resolved-polygon Forest Dressing with area-scaled, seeded edge vegetation, clustered rocks/bushes, rare bare-tree accents, and shared occupancy avoidance.
@@ -124,6 +127,10 @@ godot --headless --path . --script tests/test_chunk_scene_runtime.gd
 godot --headless --path . --script tests/test_current_chunk_revision_transaction.gd
 godot --headless --path . --script tests/test_current_chunk_revision_real_a.gd
 godot --headless --path . --script tests/test_step4_provisional_revision.gd
+godot --headless --path . --script tests/test_step5_transition_modes.gd
+godot --headless --path . --script tests/test_revision_boundary_blend.gd
+godot --headless --path . --script tests/test_step5_real_preview_scheduler.gd
+godot --headless --path . --script tests/test_step5_end_to_end.gd
 ```
 
 ## Architecture invariants

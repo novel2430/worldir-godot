@@ -12,6 +12,8 @@ const RIPPLE_DURATION := 0.82
 const STAGGER_WINDOW := 0.34
 const TERRAIN_SWAP_DELAY := 0.34
 const COMPLETE_PADDING := 0.08
+const LIGHT_REBASE_DURATION := 0.18
+const LIGHT_COMPLETE_PADDING := 0.02
 
 const VEGETATION_TYPES := ["tree", "bush", "grass", "dead_tree", "stump", "plant", "flower"]
 const BUILDING_TYPES := ["house", "church", "tower", "lighthouse", "bridge", "radio_tower", "gas_station"]
@@ -32,6 +34,9 @@ func apply(
     var maximum_delay := 0.0
 
     last_patch_summary = {
+        "mode": "FULL_REWRITE",
+        "tween_strategy": "per_object",
+        "estimated_tween_count": changes.size(),
         "change_count": changes.size(),
         "change_center": center,
         "max_stagger_delay": 0.0,
@@ -88,6 +93,81 @@ func apply(
     ) * duration_scale + COMPLETE_PADDING
     if active_root.is_inside_tree() and duration_scale > 0.0:
         await active_root.get_tree().create_timer(total).timeout
+
+# Preview rebase deliberately avoids per-object ripple/stagger/grow/sink work.
+# One Tween drives a whole-scene crossfade while Candidate collision becomes
+# authoritative immediately. The returned duration lets A's existing queue
+# keep at most one expensive Preview overlap alive at a time.
+func apply_light(
+    active_root: Node3D,
+    candidate: Node3D,
+    patch: Dictionary
+) -> float:
+    var parent := active_root.get_parent()
+    if parent == null:
+        return -1.0
+    var changes := _collect_changes(patch)
+    last_patch_summary = {
+        "mode": "LIGHT_REBASE",
+        "tween_strategy": "single_group_crossfade",
+        "estimated_tween_count": 1,
+        "change_count": changes.size(),
+        "terrain_changed": bool(patch.get("terrain_changed", false)),
+        "ripple_spawned": false,
+    }
+
+    active_root.name = "__light_rebase_old"
+    parent.add_child(candidate)
+    candidate.name = "GeneratedWorld"
+    _set_collision_enabled(active_root, false)
+    _set_collision_enabled(candidate, true)
+
+    var old_geometry := _geometry_instances(active_root)
+    var new_geometry := _geometry_instances(candidate)
+    var old_starts: Array[float] = []
+    var new_targets: Array[float] = []
+    for geometry: GeometryInstance3D in old_geometry:
+        old_starts.append(geometry.transparency)
+    for geometry: GeometryInstance3D in new_geometry:
+        new_targets.append(float(geometry.get_meta(
+            "revision_boundary_target_transparency",
+            geometry.transparency
+        )))
+        geometry.transparency = 1.0
+
+    var duration := LIGHT_REBASE_DURATION * duration_scale
+    if not active_root.is_inside_tree() or duration <= 0.0:
+        _apply_group_crossfade(1.0, old_geometry, new_geometry, old_starts, new_targets)
+        active_root.free()
+        return 0.0
+
+    var tween := candidate.create_tween()
+    tween.tween_method(
+        _apply_group_crossfade.bind(old_geometry, new_geometry, old_starts, new_targets),
+        0.0,
+        1.0,
+        duration
+    ).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+    var cleanup := candidate.create_tween()
+    cleanup.tween_interval(duration)
+    cleanup.tween_callback(active_root.queue_free)
+    return duration + LIGHT_COMPLETE_PADDING
+
+func _apply_group_crossfade(
+    weight: float,
+    old_geometry: Array[GeometryInstance3D],
+    new_geometry: Array[GeometryInstance3D],
+    old_starts: Array[float],
+    new_targets: Array[float]
+) -> void:
+    for index in range(old_geometry.size()):
+        var geometry := old_geometry[index]
+        if is_instance_valid(geometry):
+            geometry.transparency = lerpf(old_starts[index], 1.0, weight)
+    for index in range(new_geometry.size()):
+        var geometry := new_geometry[index]
+        if is_instance_valid(geometry):
+            geometry.transparency = lerpf(1.0, new_targets[index], weight)
 
 func _patch_changed_resources(
     active_root: Node3D,

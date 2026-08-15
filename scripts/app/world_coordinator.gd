@@ -17,11 +17,14 @@ signal world_committed(resolved: ResolvedWorld)
 @onready var prototype_catalog: PrototypeCatalog = %PrototypeCatalog
 @onready var scene_runtime: SceneRuntime = %SceneRuntime
 @onready var runtime_fact_manager: RuntimeFactManager = %RuntimeFactManager
+@onready var chunk_manager: ChunkManager = %ChunkManager
+@onready var player: Node3D = %Player
 
 var compiler: CompilerClient
-var backend := WorldBackend.new()
 var current_resolved: ResolvedWorld = null
 var busy := false
+var revision_coordinator: CurrentChunkRevisionCoordinator = null
+var _revision_in_flight := false
 
 func _ready() -> void:
 	runtime_fact_manager.fact_created.connect(_on_fact_created)
@@ -37,13 +40,36 @@ func _ready() -> void:
 	compiler.compile_completed.connect(_on_compile_completed)
 	compiler.compiler_error.connect(_on_compiler_error)
 	compiler.readiness_changed.connect(_on_readiness_changed)
+	chunk_manager.configure(prototype_catalog, scene_runtime, world_root, player)
+	if player.has_method("set_chunk_manager"):
+		player.call("set_chunk_manager", chunk_manager)
+	revision_coordinator = CurrentChunkRevisionCoordinator.new()
+	revision_coordinator.name = "CurrentChunkRevisionCoordinator"
+	add_child(revision_coordinator)
+	revision_coordinator.configure(
+		world_state,
+		compiler,
+		chunk_manager,
+		scene_runtime,
+		_effective_world_seed()
+	)
+	revision_coordinator.state_changed.connect(_on_revision_state_changed)
+	revision_coordinator.transaction_finished.connect(_on_revision_transaction_finished)
 	compiler.start()
 
 func submit_prompt(prompt: String) -> void:
 	if busy or prompt.strip_edges().is_empty(): return
-	busy = true; busy_changed.emit(true)
-	status_changed.emit("Compiling semantic world...")
-	compiler.compile_world(prompt, world_state.current_ir, world_state.runtime_context())
+	busy = true
+	busy_changed.emit(true)
+	if world_state.current_ir == null:
+		status_changed.emit("Compiling initial semantic world...")
+		compiler.compile_world(prompt, null, world_state.runtime_context())
+		return
+	_revision_in_flight = true
+	var started := revision_coordinator.submit_prompt(prompt)
+	if not started:
+		_revision_in_flight = false
+		_finish(false, revision_coordinator.last_error if not revision_coordinator.last_error.is_empty() else "Revision transaction could not start")
 
 func create_demo_clearing() -> void:
 	runtime_fact_manager.create_demo_clearing()
@@ -54,6 +80,9 @@ func _on_readiness_changed(ready: bool, detail: String) -> void:
 		submit_prompt("生成一个废弃海边小镇：西边森林，东边海岸，主路南北贯穿，北边教堂靠近道路，房屋沿路，森林里有树。")
 
 func _on_compile_completed(result: Dictionary) -> void:
+	if _revision_in_flight:
+		# CurrentChunkRevisionCoordinator owns every edit response after boot.
+		return
 	if String(result.get("status", "")) == "ir_gap":
 		_finish(false, "IR GAP: %s" % String(result.get("gap", {}).get("reason", "unsupported semantics")))
 		return
@@ -63,39 +92,41 @@ func _on_compile_completed(result: Dictionary) -> void:
 
 	var candidate_ir: Dictionary = result.world_ir
 	var candidate_facts := world_state.candidate_facts_after_ops(result.get("runtime_fact_ops", []))
-	var candidate_resolved := backend.lower(
+	if not chunk_manager.initialize_world(
 		candidate_ir,
-		prototype_catalog,
-		world_seed,
-		result.get("runtime_bindings", []),
-		world_state.spatial_payloads
-	)
-	if not candidate_resolved.errors.is_empty():
-		_finish(false, "Backend rejected Candidate World: %s" % " | ".join(candidate_resolved.errors))
+		0,
+		_effective_world_seed(),
+		player.global_position
+	):
+		_finish(false, "Chunk system rejected initial Candidate World")
 		return
-
-	var candidate_scene := scene_runtime.build_candidate(candidate_resolved, prototype_catalog)
-	if candidate_scene == null:
-		_finish(false, "Scene candidate failed; old world preserved")
-		return
-
-	if current_resolved == null:
-		scene_runtime.commit_candidate(world_root, candidate_scene)
-	else:
-		await scene_runtime.transition_candidate(
-			world_root,
-			candidate_scene,
-			current_resolved,
-			candidate_resolved
-		)
 	world_state.commit(candidate_ir, candidate_facts)
-	current_resolved = candidate_resolved
-	world_committed.emit(candidate_resolved)
-	var warning_text := "" if candidate_resolved.warnings.is_empty() else " | warnings: %s" % ", ".join(candidate_resolved.warnings)
-	_finish(true, "World committed: %d regions, %d networks, %d entities%s" % [candidate_resolved.regions.size(), candidate_resolved.networks.size(), candidate_resolved.entities.size(), warning_text])
+	var current_record := chunk_manager.get_record(chunk_manager.get_current_chunk_coord())
+	current_resolved = current_record.resolved_chunk
+	world_committed.emit(current_resolved)
+	_finish(true, "V1 world committed: 3x3 Chunk window at revision 0")
 
 func _on_compiler_error(message: String) -> void:
+	if _revision_in_flight:
+		return
 	_finish(false, "Compiler error: %s" % message)
+
+func _on_revision_state_changed(next_state: String) -> void:
+	if not _revision_in_flight and next_state == CurrentChunkRevisionCoordinator.STATE_STABLE:
+		return
+	status_changed.emit("Revision: %s" % next_state)
+
+func _on_revision_transaction_finished(success: bool, message: String) -> void:
+	if not _revision_in_flight:
+		return
+	_revision_in_flight = false
+	if success and revision_coordinator.last_transaction != null:
+		var coord: Vector2i = revision_coordinator.last_transaction.transaction_chunk_coord
+		var record := chunk_manager.get_record(coord)
+		if record != null:
+			current_resolved = record.resolved_chunk
+			world_committed.emit(current_resolved)
+	_finish(success, message)
 
 func _on_fact_created(fact: Dictionary, payload: Dictionary) -> void:
 	world_state.add_runtime_fact(fact, payload)
@@ -103,3 +134,6 @@ func _on_fact_created(fact: Dictionary, payload: Dictionary) -> void:
 
 func _finish(_success: bool, message: String) -> void:
 	busy = false; busy_changed.emit(false); status_changed.emit(message)
+
+func _effective_world_seed() -> int:
+	return world_seed if world_seed >= 0 else 1337

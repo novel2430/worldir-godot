@@ -24,10 +24,17 @@ func _run() -> void:
     _expect(coordinator.current_resolved != null, "Fake compiler must commit the demo world")
     if coordinator.current_resolved != null:
         _expect(coordinator.current_resolved.terrain != null, "Committed demo must include resolved terrain")
-        _expect(main.get_node_or_null("WorldRoot/GeneratedWorld/Terrain/WorldSurface") != null, "Committed scene must contain the world surface")
+        var manager := main.get_node("ChunkManager") as ChunkManager
+        _expect(manager.initialized, "Main scene must initialize the real ChunkManager")
+        _expect(manager.get_active_records().size() == 9, "Main scene must materialize a 3x3 window")
+        var current_coord := manager.get_current_chunk_coord()
+        var chunk_root := manager.get_chunk_root(current_coord)
+        _expect(chunk_root != null, "Current ChunkRoot must be mounted")
+        _expect(chunk_root.get_node_or_null("GeneratedWorld/Terrain/WorldSurface") != null, "Committed Chunk scene must contain the world surface")
         _expect(main.get_node_or_null("BaseGround") == null, "Legacy flat base ground must stay removed")
-        var generated := main.get_node("WorldRoot/GeneratedWorld") as Node3D
-        var stable_tree := generated.get_node("Distributions/trees/trees_000") as Node3D
+        var generated := chunk_root.get_node("GeneratedWorld") as Node3D
+        var tree_group := generated.get_node("Distributions/trees")
+        var stable_tree := tree_group.get_child(0) as Node3D
         var stable_terrain := generated.get_node("Terrain/WorldSurface") as Node3D
         var stable_road := generated.get_node("Networks/main_road") as Node3D
         var generated_id := generated.get_instance_id()
@@ -36,21 +43,25 @@ func _run() -> void:
         var road_id := stable_road.get_instance_id()
         coordinator.scene_runtime.scene_transition.duration_scale = 0.02
         coordinator.submit_prompt("保持当前世界不变")
-        await process_frame
+        for _frame in range(120):
+            if not coordinator.busy:
+                break
+            await process_frame
+        var rewritten := manager.get_chunk_root(current_coord).get_node("GeneratedWorld") as Node3D
         _expect(
-            (main.get_node("WorldRoot/GeneratedWorld") as Node3D).get_instance_id() == generated_id,
-            "No-op edit must preserve the active GeneratedWorld Node"
+            rewritten.get_instance_id() == generated_id,
+            "No-op edit must preserve the active Chunk GeneratedWorld Node"
         )
         _expect(
-            (main.get_node("WorldRoot/GeneratedWorld/Distributions/trees/trees_000") as Node3D).get_instance_id() == tree_id,
+            (rewritten.get_node("Distributions/trees").get_child(0) as Node3D).get_instance_id() == tree_id,
             "No-op edit must preserve unchanged instance identity"
         )
         _expect(
-            (main.get_node("WorldRoot/GeneratedWorld/Terrain/WorldSurface") as Node3D).get_instance_id() == terrain_id,
+            (rewritten.get_node("Terrain/WorldSurface") as Node3D).get_instance_id() == terrain_id,
             "No-op edit must preserve unchanged terrain identity"
         )
         _expect(
-            (main.get_node("WorldRoot/GeneratedWorld/Networks/main_road") as Node3D).get_instance_id() == road_id,
+            (rewritten.get_node("Networks/main_road") as Node3D).get_instance_id() == road_id,
             "No-op edit must preserve unchanged road identity"
         )
         _expect(

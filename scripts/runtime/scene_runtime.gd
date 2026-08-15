@@ -2,6 +2,8 @@ class_name SceneRuntime
 extends Node
 
 const SceneTransitionScript = preload("res://scripts/runtime/scene_transition.gd")
+const RevisionTransitionPolicyScript = preload("res://scripts/revision/revision_transition_policy.gd")
+const RevisionBoundaryBlendScript = preload("res://scripts/runtime/revision_boundary_blend.gd")
 
 const TRANSITION_MODE_FULL_REWRITE := "FULL_REWRITE"
 const TRANSITION_MODE_LIGHT_REBASE := "LIGHT_REBASE"
@@ -9,10 +11,25 @@ const TRANSITION_MODE_SILENT := "SILENT"
 const TRANSITION_MODE_SILENT_REBUILD := "SILENT_REBUILD"
 const CHUNK_CONTENT_NAME := "GeneratedWorld"
 
+signal chunk_transition_applied(coord: Vector2i, mode: String)
+signal chunk_transition_finished(coord: Vector2i, mode: String)
+
 var road_builder := RoadBuilder.new()
 var scene_diff := SceneDiff.new()
 var scene_transition: RefCounted = SceneTransitionScript.new()
+var transition_policy: RefCounted = RevisionTransitionPolicyScript.new()
+var revision_boundary_blend: RefCounted = RevisionBoundaryBlendScript.new()
 var prototype_catalog: PrototypeCatalog = null
+var last_transition_mode_by_coord: Dictionary = {}
+var transition_mode_counts := {
+    TRANSITION_MODE_FULL_REWRITE: 0,
+    TRANSITION_MODE_LIGHT_REBASE: 0,
+    TRANSITION_MODE_SILENT: 0,
+}
+var last_boundary_plan: Dictionary = {}
+var candidate_scene_count := 0
+var peak_candidate_scene_count := 0
+var silent_mount_count := 0
 var _terrain_material_cache: ShaderMaterial = null
 var _water_material_cache: ShaderMaterial = null
 var _foam_material_cache: ShaderMaterial = null
@@ -46,6 +63,7 @@ func mount_chunk(
     if candidate == null:
         return null
     _replace_chunk_content(chunk_root, candidate)
+    silent_mount_count += 1
     if resolved_chunk is ResolvedChunk:
         chunk_root.set_meta("chunk_coord", resolved_chunk.coord)
         chunk_root.set_meta("ir_revision", resolved_chunk.revision)
@@ -126,6 +144,34 @@ func is_transition_mode_supported(transition_mode: String) -> bool:
         TRANSITION_MODE_SILENT_REBUILD,
     ]
 
+func canonical_transition_mode(transition_mode: String) -> String:
+    return (
+        TRANSITION_MODE_SILENT
+        if transition_mode == TRANSITION_MODE_SILENT_REBUILD
+        else transition_mode
+    )
+
+func preview_transition_mode(
+    current_coord: Vector2i,
+    preview_coord: Vector2i,
+    chunk_root: Node3D
+) -> String:
+    return transition_policy.preview_mode(
+        current_coord,
+        preview_coord,
+        chunk_root != null and chunk_root.get_node_or_null(CHUNK_CONTENT_NAME) != null,
+        chunk_root != null and chunk_root.is_visible_in_tree()
+    )
+
+func transition_duration_for_mode(transition_mode: String) -> float:
+    var mode := canonical_transition_mode(transition_mode)
+    if mode == TRANSITION_MODE_LIGHT_REBASE:
+        return (
+            SceneTransitionScript.LIGHT_REBASE_DURATION * scene_transition.duration_scale
+            + SceneTransitionScript.LIGHT_COMPLETE_PADDING
+        )
+    return 0.0
+
 func prepare_chunk_transition(
     old_resolved_chunk: ResolvedWorld,
     new_resolved_chunk: ResolvedWorld,
@@ -138,6 +184,8 @@ func prepare_chunk_transition(
     var candidate := build_candidate(new_resolved_chunk, catalog)
     if candidate == null:
         return {}
+    candidate_scene_count += 1
+    peak_candidate_scene_count = maxi(peak_candidate_scene_count, candidate_scene_count)
     return {
         "candidate_scene": candidate,
         "patch": scene_diff.compare(old_resolved_chunk, new_resolved_chunk),
@@ -151,28 +199,108 @@ func apply_prepared_chunk_transition(
 ):
     if not is_transition_mode_supported(transition_mode):
         return null
+    var mode := canonical_transition_mode(transition_mode)
+    if mode != TRANSITION_MODE_FULL_REWRITE:
+        return apply_prepared_preview_transition(
+            chunk_root,
+            new_resolved_chunk,
+            prepared,
+            mode
+        )
     var candidate := prepared.get("candidate_scene") as Node3D
     var patch_value: Variant = prepared.get("patch")
     if candidate == null or typeof(patch_value) != TYPE_DICTIONARY:
         return null
     var patch: Dictionary = patch_value
     var active_root := chunk_root.get_node_or_null(CHUNK_CONTENT_NAME) as Node3D
-    if (
-        active_root == null
-        or transition_mode in [TRANSITION_MODE_SILENT, TRANSITION_MODE_SILENT_REBUILD]
-    ):
+    var coord := _resolved_coord(new_resolved_chunk, chunk_root)
+    if active_root == null:
         _replace_chunk_content(chunk_root, candidate)
+        _candidate_scene_consumed()
+        _record_transition(coord, TRANSITION_MODE_SILENT)
+        chunk_transition_applied.emit(coord, TRANSITION_MODE_SILENT)
+        chunk_transition_finished.emit(coord, TRANSITION_MODE_SILENT)
         return patch
 
-    # LIGHT_REBASE intentionally reuses the existing animation in Step 4. Its
-    # lower-cost visual profile remains Step 5 performance/polish work.
     await scene_transition.apply(active_root, candidate, patch, new_resolved_chunk)
+    _candidate_scene_consumed()
+    _record_transition(coord, TRANSITION_MODE_FULL_REWRITE)
+    chunk_transition_applied.emit(coord, TRANSITION_MODE_FULL_REWRITE)
+    chunk_transition_finished.emit(coord, TRANSITION_MODE_FULL_REWRITE)
+    return patch
+
+# A's deferred Preview queue calls this synchronous seam. FULL_REWRITE remains
+# the only coroutine because it is the Current transaction critical path.
+func apply_prepared_preview_transition(
+    chunk_root: Node3D,
+    new_resolved_chunk: ResolvedWorld,
+    prepared: Dictionary,
+    transition_mode: String
+):
+    if not is_transition_mode_supported(transition_mode):
+        return null
+    var mode := canonical_transition_mode(transition_mode)
+    if mode == TRANSITION_MODE_FULL_REWRITE:
+        return null
+    var candidate := prepared.get("candidate_scene") as Node3D
+    var patch_value: Variant = prepared.get("patch")
+    if candidate == null or typeof(patch_value) != TYPE_DICTIONARY:
+        return null
+    var patch: Dictionary = patch_value
+    var active_root := chunk_root.get_node_or_null(CHUNK_CONTENT_NAME) as Node3D
+    var coord := _resolved_coord(new_resolved_chunk, chunk_root)
+    if active_root == null or mode == TRANSITION_MODE_SILENT:
+        _replace_chunk_content(chunk_root, candidate)
+        _candidate_scene_consumed()
+        _record_transition(coord, TRANSITION_MODE_SILENT)
+        chunk_transition_applied.emit(coord, TRANSITION_MODE_SILENT)
+        chunk_transition_finished.emit(coord, TRANSITION_MODE_SILENT)
+        return patch
+
+    var duration: float = scene_transition.apply_light(active_root, candidate, patch)
+    if duration < 0.0:
+        return null
+    _candidate_scene_consumed()
+    _record_transition(coord, TRANSITION_MODE_LIGHT_REBASE)
+    chunk_transition_applied.emit(coord, TRANSITION_MODE_LIGHT_REBASE)
+    _finish_light_transition_later(coord, duration)
     return patch
 
 func discard_prepared_chunk_transition(prepared: Dictionary) -> void:
     var candidate := prepared.get("candidate_scene") as Node3D
     if candidate != null and is_instance_valid(candidate) and candidate.get_parent() == null:
         candidate.free()
+        _candidate_scene_consumed()
+
+func reconcile_revision_boundaries(
+    records: Array,
+    chunk_roots: Dictionary,
+    resolved_overrides: Dictionary = {},
+    scene_overrides: Dictionary = {}
+) -> Dictionary:
+    last_boundary_plan = revision_boundary_blend.build_plan(records, resolved_overrides)
+    revision_boundary_blend.apply_plan(last_boundary_plan, chunk_roots, scene_overrides)
+    return last_boundary_plan.duplicate(true)
+
+func _record_transition(coord: Vector2i, mode: String) -> void:
+    last_transition_mode_by_coord[coord] = mode
+    transition_mode_counts[mode] = int(transition_mode_counts.get(mode, 0)) + 1
+
+func _resolved_coord(resolved: ResolvedWorld, chunk_root: Node3D) -> Vector2i:
+    if resolved is ResolvedChunk:
+        return resolved.coord
+    var value: Variant = chunk_root.get_meta("chunk_coord", Vector2i.ZERO)
+    return value if value is Vector2i else Vector2i.ZERO
+
+func _candidate_scene_consumed() -> void:
+    candidate_scene_count = maxi(0, candidate_scene_count - 1)
+
+func _finish_light_transition_later(coord: Vector2i, duration: float) -> void:
+    if duration <= 0.0 or not is_inside_tree():
+        chunk_transition_finished.emit(coord, TRANSITION_MODE_LIGHT_REBASE)
+        return
+    await get_tree().create_timer(duration).timeout
+    chunk_transition_finished.emit(coord, TRANSITION_MODE_LIGHT_REBASE)
 
 func _replace_chunk_content(chunk_root: Node3D, candidate: Node3D) -> void:
     var active_root := chunk_root.get_node_or_null(CHUNK_CONTENT_NAME)
