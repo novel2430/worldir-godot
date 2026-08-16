@@ -95,7 +95,7 @@ Implemented:
 
 Deliberately still simple:
 
-- Region geometry uses lightly irregular deterministic polygons as mask domains; V0 terrain is one bounded 97×97 mesh, not a streaming/erosion terrain system.
+- Region geometry uses lightly irregular deterministic polygons as mask domains; the current experiment uses a 500×500 m world on one bounded 97×97 terrain mesh, not a streaming/erosion terrain system.
 - Roads bend lightly; terrain is graded beneath the core/shoulder, the ribbon is longitudinally densified, and both edges independently sample terrain. Topology routing remains a simple deterministic heuristic.
 - Density gradient uses qualitative weighted sampling; it is intentionally not a numeric density-field solver.
 - Path geometry changes currently use ripple-assisted crossfade rather than spline morphing; Terrain swaps its whole mesh at the ripple peak rather than chunking or vertex morphing.
