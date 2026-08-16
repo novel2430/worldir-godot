@@ -160,6 +160,36 @@
       "scale_correction": 1.0,
       "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelspoly-haven1k-gltf",
       "license": "CC0"
+    },
+    {
+      "id": "prop.research.radiation_warning_sign",
+      "resource_path": "res://assets/oweng/generated/source/industrial/rusted_radiation_warning_sign_2712064_2.glb",
+      "category": "environment",
+      "default_interaction_class": "decorative",
+      "capabilities": ["inspect"],
+      "scale_correction": 2.15,
+      "source_ref": "ASSET_MANIFEST.md#user-provided-generated-assets",
+      "license": "user_provided_generated_asset"
+    },
+    {
+      "id": "prop.research.tidal_danger_sign",
+      "resource_path": "res://assets/oweng/generated/source/industrial/rusted_tidal_danger_sign_2711885_2.glb",
+      "category": "environment",
+      "default_interaction_class": "decorative",
+      "capabilities": ["inspect"],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#user-provided-generated-assets",
+      "license": "user_provided_generated_asset"
+    },
+    {
+      "id": "prop.log.dead_tree_trunk",
+      "resource_path": "res://assets/oweng/props/logs/dead_tree_trunk/dead_tree_trunk_1k.gltf",
+      "category": "environment",
+      "default_interaction_class": "environment",
+      "capabilities": ["inspect"],
+      "scale_correction": 1.0,
+      "source_ref": "ASSET_MANIFEST.md#third-party-cc0-modelspoly-haven1k-gltf",
+      "license": "CC0"
     }
   ]
 }

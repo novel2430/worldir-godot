@@ -3,6 +3,14 @@ extends Node
 
 const SceneTransitionScript = preload("res://scripts/runtime/scene_transition.gd")
 const ENVIRONMENT_BLEND_SPEED := 1.65
+const SNOW_FADE_IN_SPEED := 3.0
+const SNOW_FADE_OUT_SPEED := 8.0
+const SNOW_START_WEIGHT := 0.28
+const SNOW_FULL_WEIGHT := 0.72
+const EDGE_FOG_START_DISTANCE := 110.0
+const EDGE_FOG_FULL_DISTANCE := 20.0
+const EDGE_FOG_MAX_DENSITY := 0.045
+const TERRAIN_HORIZON_EXTENSION := 300.0
 const GROUND_TEXTURE_SIZE := 1024
 const UPDATE_BUILD_SLICE_USEC := 4500
 const GROUND_TEXTURES := {
@@ -42,6 +50,7 @@ var _world_environment: WorldEnvironment = null
 var _sun: DirectionalLight3D = null
 var _player: Node3D = null
 var _snowfall: GPUParticles3D = null
+var _snowfall_intensity := 0.0
 
 func _ready() -> void:
     for region_type in ["coastal_forest", "research_base", "snow_forest"]:
@@ -247,12 +256,17 @@ func _add_instance_record(
     return true
 
 func commit_candidate(world_root: Node3D, candidate: Node3D) -> void:
+    var initial_canvas := world_root.get_node_or_null("InitialCanvas") as Node3D
     for child in world_root.get_children():
+        if child == initial_canvas:
+            continue
         world_root.remove_child(child)
         child.queue_free()
     world_root.add_child(candidate)
     candidate.name = "GeneratedWorld"
     _activate_visual_world(candidate.get_meta("resolved_world", null) as ResolvedWorld)
+    if initial_canvas != null:
+        scene_transition.reveal_initial_world(initial_canvas, candidate)
 
 func transition_candidate(
     world_root: Node3D,
@@ -274,11 +288,21 @@ func transition_candidate(
     return patch
 
 func _activate_visual_world(resolved: ResolvedWorld) -> void:
+    var first_activation := active_resolved == null
     active_resolved = resolved
     if resolved == null or resolved.terrain == null or _player == null:
         return
+    if first_activation:
+        var player_position := _player.global_position
+        player_position.y = resolved.terrain.sample_height(
+            Vector2(player_position.x, player_position.z)
+        )
+        _player.global_position = player_position
     current_environment_weights = region_weights_at(_player.global_position)
     _apply_visual_environment(current_environment_weights)
+    _apply_boundary_fog(_player.global_position)
+    _snowfall_intensity = _snowfall_target(current_environment_weights)
+    _apply_snowfall(_snowfall_intensity)
 
 func region_weights_at(position: Vector3) -> Color:
     if active_resolved == null or active_resolved.terrain == null:
@@ -299,8 +323,25 @@ func update_visual_environment(position: Vector3, delta: float) -> void:
         current_environment_weights.g /= total
         current_environment_weights.b /= total
     _apply_visual_environment(current_environment_weights)
+    _apply_boundary_fog(position)
     if _snowfall != null:
         _snowfall.global_position = position + Vector3(0.0, 8.0, 0.0)
+        var snow_target := _snowfall_target(target)
+        var snow_speed := (
+            SNOW_FADE_IN_SPEED
+            if snow_target > _snowfall_intensity
+            else SNOW_FADE_OUT_SPEED
+        )
+        var snow_blend := 1.0 - exp(-maxf(0.0, delta) * snow_speed)
+        _snowfall_intensity = lerpf(_snowfall_intensity, snow_target, snow_blend)
+        if _snowfall_intensity < 0.002 and snow_target <= 0.0:
+            _snowfall_intensity = 0.0
+        _apply_snowfall(_snowfall_intensity)
+        # Do not emit even a short trail of new flakes after the player has
+        # crossed out of snow influence. Existing world-space flakes finish
+        # their lifetime where they were born inside the snow forest.
+        if snow_target <= 0.0:
+            _snowfall.emitting = false
 
 func _apply_visual_environment(weights: Color) -> void:
     if _world_environment == null or _world_environment.environment == null or _sun == null:
@@ -340,27 +381,84 @@ func _apply_visual_environment(weights: Color) -> void:
     environment.fog_density = _weighted_float(
         coastal_air.fog_density, research_air.fog_density, snow_air.fog_density, weights
     )
-    if environment.sky != null and environment.sky.sky_material is ProceduralSkyMaterial:
-        var sky_material := environment.sky.sky_material as ProceduralSkyMaterial
-        sky_material.sky_top_color = _weighted_color(
+    if environment.sky != null and environment.sky.sky_material is ShaderMaterial:
+        var sky_material := environment.sky.sky_material as ShaderMaterial
+        sky_material.set_shader_parameter("top_color", _weighted_color(
             coastal_light.sky_top_color,
             research_light.sky_top_color,
             snow_light.sky_top_color,
             weights
-        )
-        sky_material.sky_horizon_color = _weighted_color(
+        ))
+        sky_material.set_shader_parameter("horizon_color", _weighted_color(
             coastal_light.sky_horizon_color,
             research_light.sky_horizon_color,
             snow_light.sky_horizon_color,
             weights
-        )
-    if _snowfall != null:
-        var snow_intensity := _weighted_float(
-            coastal_air.snowfall, research_air.snowfall, snow_air.snowfall, weights
-        )
-        _snowfall.amount_ratio = clampf(snow_intensity, 0.0, 1.0)
-        _snowfall.emitting = snow_intensity > 0.01
-        _snowfall.visible = snow_intensity > 0.005
+        ))
+        sky_material.set_shader_parameter("ground_color", _weighted_color(
+            coastal_light.sky_ground_color,
+            research_light.sky_ground_color,
+            snow_light.sky_ground_color,
+            weights
+        ))
+        sky_material.set_shader_parameter("cloud_color", _weighted_color(
+            coastal_air.cloud_color,
+            research_air.cloud_color,
+            snow_air.cloud_color,
+            weights
+        ))
+        sky_material.set_shader_parameter("cloud_shadow_color", _weighted_color(
+            coastal_air.cloud_shadow_color,
+            research_air.cloud_shadow_color,
+            snow_air.cloud_shadow_color,
+            weights
+        ))
+        for parameter in ["cloud_amount", "cloud_opacity", "cloud_scale", "cloud_speed", "sun_strength"]:
+            sky_material.set_shader_parameter(parameter, _weighted_float(
+                float(coastal_air[parameter]),
+                float(research_air[parameter]),
+                float(snow_air[parameter]),
+                weights
+            ))
+
+func _snowfall_target(weights: Color) -> float:
+    return smoothstep(SNOW_START_WEIGHT, SNOW_FULL_WEIGHT, weights.b)
+
+func _apply_boundary_fog(position: Vector3) -> void:
+    if (
+        active_resolved == null
+        or active_resolved.terrain == null
+        or _world_environment == null
+        or _world_environment.environment == null
+    ):
+        return
+    var bounds: Rect2 = active_resolved.terrain.world_bounds
+    if not bounds.has_area():
+        return
+    var point := Vector2(position.x, position.z)
+    var edge_distance := minf(
+        minf(point.x - bounds.position.x, bounds.end.x - point.x),
+        minf(point.y - bounds.position.y, bounds.end.y - point.y)
+    )
+    var edge_weight := 1.0 - smoothstep(
+        EDGE_FOG_FULL_DISTANCE,
+        EDGE_FOG_START_DISTANCE,
+        edge_distance
+    )
+    var environment := _world_environment.environment
+    environment.fog_density = lerpf(
+        environment.fog_density,
+        maxf(environment.fog_density, EDGE_FOG_MAX_DENSITY),
+        edge_weight
+    )
+
+func _apply_snowfall(intensity: float) -> void:
+    if _snowfall == null:
+        return
+    var value := clampf(intensity, 0.0, 1.0)
+    _snowfall.amount_ratio = value
+    _snowfall.emitting = value > 0.01
+    _snowfall.visible = value > 0.005
 
 func _weighted_color(a: Color, b: Color, c: Color, weights: Color) -> Color:
     var result := a * weights.r + b * weights.g + c * weights.b
@@ -377,6 +475,7 @@ func _create_snowfall() -> GPUParticles3D:
     particles.amount_ratio = 0.0
     particles.lifetime = 3.4
     particles.randomness = 0.48
+    particles.local_coords = false
     particles.visibility_aabb = AABB(Vector3(-18.0, -13.0, -18.0), Vector3(36.0, 26.0, 36.0))
     particles.emitting = false
     particles.visible = false
@@ -413,6 +512,15 @@ func _build_terrain(terrain: Resource) -> StaticBody3D:
     mesh_instance.mesh = _terrain_mesh(terrain)
     mesh_instance.material_override = _terrain_material()
     body.add_child(mesh_instance)
+    # A cheap, collision-free ring continues the exact border samples beyond
+    # the playable terrain. It only exists to keep the finite mesh edge out of
+    # the camera while distance fog removes its far end.
+    var horizon := MeshInstance3D.new()
+    horizon.name = "HorizonExtension"
+    horizon.mesh = _terrain_horizon_mesh(terrain)
+    horizon.material_override = _terrain_material()
+    horizon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    body.add_child(horizon)
     var collision := CollisionShape3D.new()
     collision.name = "TerrainCollision"
     var shape := ConcavePolygonShape3D.new()
@@ -486,6 +594,112 @@ func _terrain_mesh(terrain: Resource) -> ArrayMesh:
     var mesh := ArrayMesh.new()
     mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
     return mesh
+
+func _terrain_horizon_mesh(terrain: Resource) -> ArrayMesh:
+    var st := SurfaceTool.new()
+    st.begin(Mesh.PRIMITIVE_TRIANGLES)
+    var bounds: Rect2 = terrain.world_bounds
+    var extension := TERRAIN_HORIZON_EXTENSION
+    var last: int = int(terrain.grid_size) - 1
+    var step_x: float = bounds.size.x / float(last)
+    var step_z: float = bounds.size.y / float(last)
+    for index in range(last):
+        var z_a := bounds.position.y + float(index) * step_z
+        var z_b := z_a + step_z
+        _horizon_quad(
+            st,
+            Vector3(bounds.position.x, terrain.heights[index * terrain.grid_size], z_a),
+            terrain.surface_masks[index * terrain.grid_size],
+            Vector3(bounds.position.x, terrain.heights[(index + 1) * terrain.grid_size], z_b),
+            terrain.surface_masks[(index + 1) * terrain.grid_size],
+            Vector3(bounds.position.x - extension, terrain.heights[(index + 1) * terrain.grid_size], z_b),
+            terrain.surface_masks[(index + 1) * terrain.grid_size],
+            Vector3(bounds.position.x - extension, terrain.heights[index * terrain.grid_size], z_a),
+            terrain.surface_masks[index * terrain.grid_size]
+        )
+        var right_a: int = index * int(terrain.grid_size) + last
+        var right_b: int = (index + 1) * int(terrain.grid_size) + last
+        _horizon_quad(
+            st,
+            Vector3(bounds.end.x, terrain.heights[right_a], z_a), terrain.surface_masks[right_a],
+            Vector3(bounds.end.x + extension, terrain.heights[right_a], z_a), terrain.surface_masks[right_a],
+            Vector3(bounds.end.x + extension, terrain.heights[right_b], z_b), terrain.surface_masks[right_b],
+            Vector3(bounds.end.x, terrain.heights[right_b], z_b), terrain.surface_masks[right_b]
+        )
+    for index in range(last):
+        var x_a := bounds.position.x + float(index) * step_x
+        var x_b := x_a + step_x
+        var top_a := index
+        var top_b := index + 1
+        _horizon_quad(
+            st,
+            Vector3(x_a, terrain.heights[top_a], bounds.position.y), terrain.surface_masks[top_a],
+            Vector3(x_a, terrain.heights[top_a], bounds.position.y - extension), terrain.surface_masks[top_a],
+            Vector3(x_b, terrain.heights[top_b], bounds.position.y - extension), terrain.surface_masks[top_b],
+            Vector3(x_b, terrain.heights[top_b], bounds.position.y), terrain.surface_masks[top_b]
+        )
+        var bottom_a: int = last * int(terrain.grid_size) + index
+        var bottom_b: int = bottom_a + 1
+        _horizon_quad(
+            st,
+            Vector3(x_a, terrain.heights[bottom_a], bounds.end.y), terrain.surface_masks[bottom_a],
+            Vector3(x_b, terrain.heights[bottom_b], bounds.end.y), terrain.surface_masks[bottom_b],
+            Vector3(x_b, terrain.heights[bottom_b], bounds.end.y + extension), terrain.surface_masks[bottom_b],
+            Vector3(x_a, terrain.heights[bottom_a], bounds.end.y + extension), terrain.surface_masks[bottom_a]
+        )
+    _horizon_corner_quads(st, terrain, extension)
+    return st.commit()
+
+func _horizon_corner_quads(st: SurfaceTool, terrain: Resource, extension: float) -> void:
+    var bounds: Rect2 = terrain.world_bounds
+    var last: int = int(terrain.grid_size) - 1
+    var corner_data := [
+        [Vector2(bounds.position.x, bounds.position.y), Vector2(-extension, 0.0), Vector2(-extension, -extension), Vector2(0.0, -extension), 0],
+        [Vector2(bounds.end.x, bounds.position.y), Vector2(0.0, -extension), Vector2(extension, -extension), Vector2(extension, 0.0), last],
+        [Vector2(bounds.end.x, bounds.end.y), Vector2(extension, 0.0), Vector2(extension, extension), Vector2(0.0, extension), last * terrain.grid_size + last],
+        [Vector2(bounds.position.x, bounds.end.y), Vector2(0.0, extension), Vector2(-extension, extension), Vector2(-extension, 0.0), last * terrain.grid_size],
+    ]
+    for data: Array in corner_data:
+        var corner: Vector2 = data[0]
+        var vertex_index: int = data[4]
+        var height: float = terrain.heights[vertex_index]
+        var color: Color = terrain.surface_masks[vertex_index]
+        _horizon_quad(
+            st,
+            Vector3(corner.x, height, corner.y), color,
+            Vector3(corner.x + data[1].x, height, corner.y + data[1].y), color,
+            Vector3(corner.x + data[2].x, height, corner.y + data[2].y), color,
+            Vector3(corner.x + data[3].x, height, corner.y + data[3].y), color
+        )
+
+func _horizon_quad(
+    st: SurfaceTool,
+    a: Vector3, color_a: Color,
+    b: Vector3, color_b: Color,
+    c: Vector3, color_c: Color,
+    d: Vector3, color_d: Color
+) -> void:
+    _horizon_triangle(st, a, color_a, b, color_b, c, color_c)
+    _horizon_triangle(st, a, color_a, c, color_c, d, color_d)
+
+func _horizon_triangle(
+    st: SurfaceTool,
+    a: Vector3, color_a: Color,
+    b: Vector3, color_b: Color,
+    c: Vector3, color_c: Color
+) -> void:
+    if (b - a).cross(c - a).dot(Vector3.DOWN) < 0.0:
+        var point_swap := b
+        b = c
+        c = point_swap
+        var color_swap := color_b
+        color_b = color_c
+        color_c = color_swap
+    for pair: Array in [[a, color_a], [b, color_b], [c, color_c]]:
+        st.set_normal(Vector3.UP)
+        st.set_tangent(Plane(1.0, 0.0, 0.0, -1.0))
+        st.set_color(pair[1])
+        st.add_vertex(pair[0])
 
 func _terrain_material() -> ShaderMaterial:
     if _terrain_material_cache != null:

@@ -1,26 +1,27 @@
 {
-  "world_size_m": 500,
+  "world_size_m": 350,
   "seed": 1337,
   "near_threshold_m": 20.0,
   "far_threshold_m": 28.0,
   "along_threshold_m": 14.0,
   "default_region_claim_budget_m2": 3000.0,
   "region_claim_budgets_m2": {
-    "coastal_forest": 7200.0,
-    "research_base": 5200.0,
-    "snow_forest": 7200.0
+	"coastal_forest": 7200.0,
+	"research_base": 5200.0,
+	"snow_forest": 7200.0
   },
   "default_population_budget": 12,
   "random_packing_loss": 1.1,
   "density_spacing_multipliers": {
-    "low": 1.6,
-    "medium": 0.85,
-    "high": 0.18
+	"low": 1.6,
+	"medium": 0.85,
+	"high": 0.18
   },
   "population_caps": {
-    "tree": 140,
-    "grass": 220,
-    "shrub": 140,
-    "rock": 90
+	"tree": 140,
+	"grass": 220,
+	"shrub": 140,
+	"rock": 90,
+	"fallen_log": 70
   }
 }

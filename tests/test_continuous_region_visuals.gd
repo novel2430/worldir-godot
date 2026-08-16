@@ -60,6 +60,8 @@ func _run() -> void:
     var runtime := SceneRuntime.new()
     var candidate := runtime.build_candidate(world, catalog)
     var terrain_mesh := candidate.get_node("Terrain/WorldSurface/TerrainMesh") as MeshInstance3D
+    var horizon_mesh := candidate.get_node("Terrain/WorldSurface/HorizonExtension") as MeshInstance3D
+    assert(horizon_mesh.mesh.get_faces().size() > 0)
     var terrain_arrays: Array = terrain_mesh.mesh.surface_get_arrays(0)
     var terrain_tangents: PackedFloat32Array = terrain_arrays[Mesh.ARRAY_TANGENT]
     assert(terrain_tangents.size() == grid * grid * 4)
@@ -116,18 +118,30 @@ func _test_environment_and_snow(
         runtime.build_candidate(world, catalog)
     )
     var environment := (main.get_node("WorldEnvironment") as WorldEnvironment).environment
+    var sky_material := environment.sky.sky_material as ShaderMaterial
+    assert(sky_material != null, "Continuous Regions must share one dynamic sky shader")
+    assert(sky_material.get_shader_parameter("cloud_noise") is Texture2D)
     var snowfall := runtime.get_node("Snowfall") as GPUParticles3D
+    assert(not snowfall.local_coords, "Snow must remain where it was emitted instead of following the player")
 
     var coastal: Vector2 = centers.coastal_forest
     var research: Vector2 = centers.research_base
     var snow: Vector2 = centers.snow_forest
     runtime.update_visual_environment(Vector3(coastal.x, 4.0, coastal.y), 10.0)
     var coastal_fog := environment.fog_density
+    var coastal_clouds := float(sky_material.get_shader_parameter("cloud_amount"))
     assert(snowfall.amount_ratio < 0.05)
+
+    var bounds: Rect2 = world.terrain.world_bounds
+    var near_edge := Vector3(bounds.position.x + 5.0, 4.0, bounds.get_center().y)
+    runtime.update_visual_environment(near_edge, 10.0)
+    assert(environment.fog_density > 0.03, "World-edge fog must hide the finite terrain horizon")
 
     runtime.update_visual_environment(Vector3(research.x, 4.0, research.y), 10.0)
     var research_fog := environment.fog_density
+    var research_clouds := float(sky_material.get_shader_parameter("cloud_amount"))
     assert(research_fog > coastal_fog)
+    assert(research_clouds > coastal_clouds)
 
     runtime.update_visual_environment(Vector3(snow.x, 4.0, snow.y), 0.10)
     var entering_intensity := snowfall.amount_ratio
@@ -135,11 +149,13 @@ func _test_environment_and_snow(
     runtime.update_visual_environment(Vector3(snow.x, 4.0, snow.y), 10.0)
     assert(snowfall.amount_ratio > 0.70)
     assert(environment.fog_density > research_fog)
+    assert(float(sky_material.get_shader_parameter("cloud_amount")) > research_clouds)
     assert(snowfall.emitting and snowfall.visible)
 
     runtime.update_visual_environment(Vector3(coastal.x, 4.0, coastal.y), 0.10)
     var leaving_intensity := snowfall.amount_ratio
     assert(leaving_intensity > 0.01 and leaving_intensity < 0.99)
+    assert(not snowfall.emitting, "Snow emission must stop immediately outside snow influence")
     runtime.update_visual_environment(Vector3(coastal.x, 4.0, coastal.y), 10.0)
     assert(snowfall.amount_ratio < 0.05)
     assert(not snowfall.emitting)

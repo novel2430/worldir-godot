@@ -15,17 +15,51 @@ func _run() -> void:
     var coordinator := main.get_node("WorldCoordinator") as WorldCoordinator
     coordinator.use_http_compiler = false
     coordinator.auto_generate_demo = true
-    # PromptPanel intentionally resolves through SceneTree.current_scene, which
-    # is not populated when a test manually attaches an instance under root.
-    main.get_node("UI").free()
+    var initial_canvas := main.get_node_or_null("WorldRoot/InitialCanvas") as Node3D
+    _expect(initial_canvas != null, "Main scene must start on the flat grass canvas")
+    _expect(
+        main.get_node_or_null("WorldRoot/GeneratedWorld") == null,
+        "Initial canvas must not masquerade as a resolved semantic world"
+    )
+    if initial_canvas != null:
+        var initial_mesh := initial_canvas.get_node("InitialGround/GrassMesh") as MeshInstance3D
+        _expect(initial_mesh.mesh is PlaneMesh, "Initial canvas ground must remain completely flat")
+        _expect(
+            initial_canvas.get_node_or_null("InitialGround/CollisionShape3D") is CollisionShape3D,
+            "Initial canvas must give the player a real ground collision"
+        )
+    var compass := main.get_node("UI/CompassHUD") as Control
+    _expect(compass != null, "Main HUD must include the compact heading compass")
+    _expect(compass.size.x <= 100.0 and compass.size.y <= 100.0, "Compass HUD must remain compact")
+    var prompt_panel := main.get_node("UI/PromptPanel") as PanelContainer
     root.add_child(main)
     await process_frame
     await process_frame
+    _expect(bool(prompt_panel.get("debug_mode")), "Prompt UI must default to Debug mode in the Editor")
+    _expect(prompt_panel.get_node("Margin/VBox/DebugHeader").visible, "Debug mode must show its header")
+    prompt_panel.set("debug_mode", false)
+    _expect(not prompt_panel.get_node("Margin/VBox/DebugHeader").visible, "Compact mode must hide debug chrome")
+    _expect(not prompt_panel.get_node("Margin/VBox/DebugDetails").visible, "Compact mode must hide technical status")
+    coordinator.status_changed.emit("IR GAP: unsupported test relation")
+    _expect(prompt_panel.get_node("Margin/VBox/GapPanel").visible, "Compact mode must reveal IR GAP failures")
+    coordinator.status_changed.emit("Compiling semantic world...")
+    _expect(not prompt_panel.get_node("Margin/VBox/GapPanel").visible, "Compact mode must hide normal status messages")
+    prompt_panel.set("debug_mode", true)
+    var player := main.get_node("Player") as PlayerController
+    var camera := main.get_node("Player/CameraPivot/Camera3D") as Camera3D
+    _expect(player.move_speed <= 5.2, "Player movement should use the slower exploration calibration")
+    _expect(player.acceleration > 0.0 and player.deceleration > player.acceleration, "Player movement should accelerate and decelerate smoothly")
+    _expect(camera.far <= 150.0, "Camera distance should hide the finite world edge")
     _expect(coordinator.current_resolved != null, "Fake compiler must commit the demo world")
     if coordinator.current_resolved != null:
         _expect(coordinator.current_resolved.terrain != null, "Committed demo must include resolved terrain")
         _expect(main.get_node_or_null("WorldRoot/GeneratedWorld/Terrain/WorldSurface") != null, "Committed scene must contain the world surface")
         _expect(main.get_node_or_null("BaseGround") == null, "Legacy flat base ground must stay removed")
+        var fading_canvas := main.get_node_or_null("WorldRoot/InitialCanvas") as Node3D
+        _expect(
+            fading_canvas == null or bool(fading_canvas.get_meta("reveal_out_started", false)),
+            "First successful commit must retire the initial canvas through the reveal transition"
+        )
         var generated := main.get_node("WorldRoot/GeneratedWorld") as Node3D
         var stable_tree := generated.get_node("Distributions/coastal_trees/coastal_trees_000") as Node3D
         var stable_terrain := generated.get_node("Terrain/WorldSurface") as Node3D

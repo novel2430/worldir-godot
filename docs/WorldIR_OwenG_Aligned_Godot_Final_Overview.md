@@ -239,7 +239,8 @@ tent
 cabin
 research_station
 radar_tower
-warning_sign
+radiation_warning_sign
+tidal_danger_sign
 cargo_truck
 crate
 maritime_memorial
@@ -260,7 +261,7 @@ cabin + snow_forest
 → snow cabin variant
 ```
 
-`warning_sign`、`cargo_truck` 等也允许 Backend 在同一 semantic type 下选择 OwenG 已有 variant。
+`radiation_warning_sign`、`tidal_danger_sign`、`cargo_truck` 等由 Backend 选择对应 OwenG asset variant。
 
 ---
 
@@ -273,6 +274,7 @@ tree
 grass
 shrub
 rock
+fallen_log
 ```
 
 Distribution 表示真正存在于 IR 中的重复 population。
@@ -1117,7 +1119,8 @@ coastal_forest
 research_base
 ├── research_station
 ├── radar_tower
-├── warning_sign
+├── radiation_warning_sign
+├── tidal_danger_sign
 ├── cargo_truck
 └── crate
 
@@ -1136,7 +1139,8 @@ coastal_forest
 ├── tree
 ├── grass
 ├── shrub
-└── rock
+├── rock
+└── fallen_log
 
 research_base
 ├── tree

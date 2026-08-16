@@ -7,17 +7,41 @@
 [ext_resource type="Script" uid="uid://iy83lnwm0gcw" path="res://scripts/interaction/runtime_fact_manager.gd" id="5"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/ui/prompt_panel.tscn" id="7"]
+[ext_resource type="Script" uid="uid://d6bdlscb0prf" path="res://scripts/ui/compass_hud.gd" id="8"]
+[ext_resource type="Shader" uid="uid://bi2f2pwicgh2j" path="res://shaders/region_sky.gdshader" id="9"]
+[ext_resource type="Texture2D" uid="uid://cu1h5e4m4460l" path="res://assets/oweng/terrain/grass_path_2/grass_path_2_diff_2k.jpg" id="10"]
+[ext_resource type="Texture2D" uid="uid://bnklf54md0leb" path="res://assets/oweng/terrain/grass_path_2/grass_path_2_nor_gl_2k.jpg" id="11"]
+[ext_resource type="Texture2D" uid="uid://bm60l2ubqxnfk" path="res://assets/oweng/terrain/grass_path_2/grass_path_2_rough_2k.jpg" id="12"]
 
-[sub_resource type="ProceduralSkyMaterial" id="SkyMaterial"]
-sky_top_color = Color(0.2, 0.36, 0.52, 1)
-sky_horizon_color = Color(0.72, 0.76, 0.72, 1)
-ground_bottom_color = Color(0.12, 0.14, 0.12, 1)
-ground_horizon_color = Color(0.58, 0.56, 0.47, 1)
-sun_angle_max = 18.0
-sun_curve = 0.08
+[sub_resource type="FastNoiseLite" id="CloudNoise"]
+frequency = 0.018
+fractal_lacunarity = 2.15
+fractal_gain = 0.56
+
+[sub_resource type="NoiseTexture2D" id="CloudTexture"]
+height = 256
+noise = SubResource("CloudNoise")
+seamless = true
+seamless_blend_skirt = 0.18
+
+[sub_resource type="ShaderMaterial" id="SkyMaterial"]
+shader = ExtResource("9")
+shader_parameter/cloud_noise = SubResource("CloudTexture")
+shader_parameter/top_color = Color(0.18, 0.38, 0.58, 1)
+shader_parameter/horizon_color = Color(0.72, 0.79, 0.76, 1)
+shader_parameter/ground_color = Color(0.28, 0.31, 0.28, 1)
+shader_parameter/cloud_color = Color(0.92, 0.94, 0.91, 1)
+shader_parameter/cloud_shadow_color = Color(0.5, 0.55, 0.56, 1)
+shader_parameter/cloud_amount = 0.28
+shader_parameter/cloud_opacity = 0.48
+shader_parameter/cloud_scale = 1.1
+shader_parameter/cloud_speed = 0.0025
+shader_parameter/sun_strength = 0.85
 
 [sub_resource type="Sky" id="Sky"]
 sky_material = SubResource("SkyMaterial")
+process_mode = 3
+radiance_size = 1
 
 [sub_resource type="Environment" id="Env"]
 background_mode = 2
@@ -29,8 +53,25 @@ reflected_light_source = 2
 fog_enabled = true
 fog_light_color = Color(0.71, 0.72, 0.66, 1)
 fog_light_energy = 0.45
-fog_density = 0.0025
-fog_sky_affect = 0.35
+fog_density = 0.0065
+fog_sky_affect = 0.32
+
+[sub_resource type="StandardMaterial3D" id="InitialGrassMaterial"]
+albedo_color = Color(0.68, 0.72, 0.61, 1)
+albedo_texture = ExtResource("10")
+roughness = 0.92
+roughness_texture = ExtResource("12")
+normal_enabled = true
+normal_scale = 0.58
+normal_texture = ExtResource("11")
+uv1_scale = Vector3(150, 150, 150)
+
+[sub_resource type="PlaneMesh" id="InitialGrassMesh"]
+material = SubResource("InitialGrassMaterial")
+size = Vector2(1000, 1000)
+
+[sub_resource type="BoxShape3D" id="InitialGrassCollision"]
+size = Vector3(1000, 0.2, 1000)
 
 [node name="Main" type="Node3D" unique_id=1988214654]
 
@@ -47,8 +88,18 @@ directional_shadow_max_distance = 130.0
 [node name="WorldRoot" type="Node3D" parent="." unique_id=1997268314]
 unique_name_in_owner = true
 
+[node name="InitialCanvas" type="Node3D" parent="WorldRoot" unique_id=831064489]
+
+[node name="InitialGround" type="StaticBody3D" parent="WorldRoot/InitialCanvas" unique_id=934822376]
+
+[node name="GrassMesh" type="MeshInstance3D" parent="WorldRoot/InitialCanvas/InitialGround" unique_id=1855509670]
+mesh = SubResource("InitialGrassMesh")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WorldRoot/InitialCanvas/InitialGround" unique_id=1796320629]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.1, 0)
+shape = SubResource("InitialGrassCollision")
+
 [node name="Player" parent="." unique_id=1467336534 instance=ExtResource("6")]
-transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -62, 5, 0)
 
 [node name="WorldState" type="Node" parent="." unique_id=2142624567]
 unique_name_in_owner = true
@@ -72,5 +123,18 @@ use_http_compiler = true
 auto_generate_demo = false
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=191063511]
+
+[node name="CompassHUD" type="Control" parent="UI" unique_id=1572982554]
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -112.0
+offset_top = 14.0
+offset_right = -16.0
+offset_bottom = 106.0
+grow_horizontal = 0
+mouse_filter = 2
+script = ExtResource("8")
 
 [node name="PromptPanel" parent="UI" unique_id=347949830 instance=ExtResource("7")]

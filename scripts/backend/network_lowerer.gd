@@ -3,6 +3,11 @@ extends RefCounted
 
 const RuntimeBindingResolverScript = preload("res://scripts/backend/runtime_binding_resolver.gd")
 const SUPPORTED_PLACEMENT_RELATIONS := ["inside", "near", "far_from", "direction_of"]
+const DEFAULT_PATH_WIDTH_M := 5.8
+const CURVE_SAMPLE_SPACING_M := 7.5
+const MIN_CURVE_SAMPLES_PER_SEGMENT := 8
+const MAX_BROAD_BEND_M := 7.5
+const MAX_DETAIL_BEND_M := 2.4
 
 var binding_resolver = RuntimeBindingResolverScript.new()
 var last_error := ""
@@ -18,7 +23,10 @@ func lower(
 	var out := ResolvedNetwork.new()
 	out.id = String(item.get("id", ""))
 	out.semantic_type = String(item.get("type", "path"))
-	out.width = 2.2
+	# ResolvedNetwork.width is a Backend realization value, not World IR. Keep it
+	# wide enough to read as a traversable route at world scale and to drive the
+	# terrain/vegetation clearance shared by every downstream system.
+	out.width = DEFAULT_PATH_WIDTH_M
 	out.surface_kind = out.semantic_type
 
 	var placement: Dictionary = item.get("placement", {})
@@ -109,16 +117,35 @@ func lower(
 	for seg in range(control.size() - 1):
 		var a: Vector2 = control[seg]
 		var b: Vector2 = control[seg + 1]
+		var segment_length := a.distance_to(b)
 		var tangent: Vector2 = (b - a).normalized()
 		var normal: Vector2 = Vector2(-tangent.y, tangent.x)
-		var steps: int = 7
+		var steps := maxi(
+			MIN_CURVE_SAMPLES_PER_SEGMENT,
+			int(ceil(segment_length / CURVE_SAMPLE_SPACING_M)) + 1
+		)
+		var broad_bend := local_rng.randf_range(
+			-minf(MAX_BROAD_BEND_M, segment_length * 0.075),
+			minf(MAX_BROAD_BEND_M, segment_length * 0.075)
+		)
+		var detail_bend := local_rng.randf_range(
+			-minf(MAX_DETAIL_BEND_M, segment_length * 0.03),
+			minf(MAX_DETAIL_BEND_M, segment_length * 0.03)
+		)
+		var detail_phase := local_rng.randf_range(0.0, TAU)
 		for i in range(steps):
 			if seg > 0 and i == 0:
 				continue
 			var t: float = float(i) / float(steps - 1)
-			# A small seeded deflection avoids a rigid ruler-straight road without
-			# turning the road surface into the scene's dominant visual mass.
-			var bend: float = sin(t * PI) * local_rng.randf_range(-3.0, 3.0)
+			# A squared sine envelope reaches zero with a flat derivative at each
+			# semantic control point. It keeps topology exact while removing the
+			# ruler-straight, visibly segmented path produced by seven samples over
+			# an entire world-spanning segment.
+			var envelope := pow(sin(t * PI), 2.0)
+			var bend := envelope * (
+				broad_bend
+				+ sin(t * TAU * 1.65 + detail_phase) * detail_bend
+			)
 			var p: Vector2 = a.lerp(b, t) + normal * bend
 			if constrained_domain.has_area():
 				p = _clamp_point(p, constrained_domain)

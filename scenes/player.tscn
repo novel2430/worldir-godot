@@ -21,3 +21,4 @@ position = Vector3(0, 1.65, 0)
 [node name="Camera3D" type="Camera3D" parent="CameraPivot"]
 current = true
 near = 0.05
+far = 150.0

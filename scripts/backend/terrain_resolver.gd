@@ -279,6 +279,8 @@ func _surface_masks_without_local_dirt(point: Vector2, world: ResolvedWorld) -> 
 func _region_weights(point: Vector2, regions: Array) -> Color:
     var weights := Color(0.0, 0.0, 0.0, 0.0)
     var proximity := Color(0.0, 0.0, 0.0, 0.0)
+    var nearest_distance := INF
+    var nearest_channel := 0
     for region: ResolvedRegion in regions:
         if region.polygon.size() < 3:
             continue
@@ -292,6 +294,12 @@ func _region_weights(point: Vector2, regions: Array) -> Color:
             signed_distance
         )
         var proximity_influence := exp(-distance / 22.0)
+        if distance < nearest_distance:
+            nearest_distance = distance
+            match region.semantic_type:
+                "research_base": nearest_channel = 1
+                "snow_forest": nearest_channel = 2
+                _: nearest_channel = 0
         match region.semantic_type:
             "coastal_forest":
                 weights.r = maxf(weights.r, influence)
@@ -309,10 +317,18 @@ func _region_weights(point: Vector2, regions: Array) -> Color:
     weights.g = maxf(weights.g, proximity.g * 0.16)
     weights.b = maxf(weights.b, proximity.b * 0.16)
     var total := weights.r + weights.g + weights.b
-    if total > 0.0001:
+    if total > 0.000000001:
         weights.r /= total
         weights.g /= total
         weights.b /= total
+    else:
+        weights = (
+            Color(1.0, 0.0, 0.0, 0.0)
+            if nearest_channel == 0
+            else Color(0.0, 1.0, 0.0, 0.0)
+            if nearest_channel == 1
+            else Color(0.0, 0.0, 1.0, 0.0)
+        )
     return weights
 
 func _nearest_region_weights(point: Vector2, regions: Array) -> Color:

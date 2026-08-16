@@ -92,6 +92,17 @@ const OWENG_PROTOTYPES := {
         "population_spacing": 4.0, "population_occupancy_scale": 0.68,
         "population_scale_min": 0.72, "population_scale_max": 1.12,
     },
+    "oweng_fallen_log": {
+        "asset_id": "prop.log.dead_tree_trunk",
+        "source_path": "res://assets/oweng/props/logs/dead_tree_trunk/dead_tree_trunk_1k.gltf",
+        "semantic_type": "fallen_log", "license": "CC0",
+        "bounds_position": Vector3(-1.539101, -0.027734, -0.170803),
+        "bounds_size": Vector3(3.051015, 0.290432, 0.277528),
+        "model_scale": 1.0, "scale_correction": 1.0,
+        "collision_shape": "box", "placement_radius": 1.95, "clearance": 0.22,
+        "population_spacing": 4.5, "population_occupancy_scale": 0.78,
+        "population_scale_min": 0.84, "population_scale_max": 1.20,
+    },
     "oweng_rock_07": {
         "asset_id": "rock.cold.07",
         "source_path": "res://assets/oweng/rocks/rock_07/rock_07_1k.gltf",
@@ -171,14 +182,23 @@ const OWENG_PROTOTYPES := {
         "model_scale": 0.72, "scale_correction": 0.72,
         "collision_shape": "box", "placement_radius": 5.0, "clearance": 1.1,
     },
-    "oweng_warning_sign": {
-        "asset_id": "prop.research.warning_sign",
+    "oweng_radiation_warning_sign": {
+        "asset_id": "prop.research.radiation_warning_sign",
         "source_path": "res://assets/oweng/generated/source/industrial/rusted_radiation_warning_sign_2712064_2.glb",
-        "semantic_type": "warning_sign", "license": "user_provided_generated_asset",
+        "semantic_type": "radiation_warning_sign", "license": "user_provided_generated_asset",
         "bounds_position": Vector3(-0.370535, -0.000001, -0.060243),
         "bounds_size": Vector3(0.739598, 1.026603, 0.101138),
         "model_scale": 2.15, "scale_correction": 2.15,
         "collision_shape": "box", "placement_radius": 0.82, "clearance": 0.28,
+    },
+    "oweng_tidal_danger_sign": {
+        "asset_id": "prop.research.tidal_danger_sign",
+        "source_path": "res://assets/oweng/generated/source/industrial/rusted_tidal_danger_sign_2711885_2.glb",
+        "semantic_type": "tidal_danger_sign", "license": "user_provided_generated_asset",
+        "bounds_position": Vector3(-0.59521, -0.000011, -0.259298),
+        "bounds_size": Vector3(1.168527, 2.2, 0.470002),
+        "model_scale": 1.0, "scale_correction": 1.0,
+        "collision_shape": "box", "placement_radius": 0.92, "clearance": 0.28,
     },
     "oweng_cargo_truck": {
         "asset_id": "vehicle.research.cargo_truck",
@@ -245,7 +265,7 @@ const OWENG_PROTOTYPES := {
     },
 }
 
-const DISTRIBUTION_TYPES := ["tree", "grass", "shrub", "rock"]
+const DISTRIBUTION_TYPES := ["tree", "grass", "shrub", "rock", "fallen_log"]
 const OWENG_VISUAL_SCALE := 1.22
 const BOX_COLLISION_XZ_SCALE := 0.68
 const BOX_COLLISION_Y_SCALE := 0.86

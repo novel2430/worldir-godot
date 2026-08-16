@@ -4,6 +4,11 @@ extends RefCounted
 const MITER_LIMIT := 2.0
 const POINT_EPSILON_SQUARED := 0.000001
 const MAX_TERRAIN_SEGMENT_LENGTH_M := 1.25
+const PATH_CROWN_HEIGHT_M := 0.085
+const CROSS_SECTION := [-1.0, -0.72, 0.0, 0.72, 1.0]
+const COASTAL_WIDTH_SCALE := 0.88
+const RESEARCH_WIDTH_SCALE := 1.0
+const SNOW_WIDTH_SCALE := 0.94
 
 var region_profiles := RegionProfileCatalog.new()
 var _path_material_cache: ShaderMaterial = null
@@ -31,25 +36,68 @@ func build(network: ResolvedNetwork, terrain: Resource = null) -> Node3D:
 func _build_ribbon(points: PackedVector3Array, width: float, terrain: Resource = null) -> ArrayMesh:
     var st := SurfaceTool.new()
     st.begin(Mesh.PRIMITIVE_TRIANGLES)
+    st.set_custom_format(0, SurfaceTool.CUSTOM_RGBA_FLOAT)
     var half := width * 0.5
     var offsets: Array[Vector2] = []
+    var distances := PackedFloat32Array()
+    distances.resize(points.size())
     for i in range(points.size()):
-        offsets.append(_join_offset(points, i, half))
+        if i > 0:
+            distances[i] = distances[i - 1] + Vector2(
+                points[i].x - points[i - 1].x,
+                points[i].z - points[i - 1].z
+            ).length()
+        var realized_half := half * _width_scale(points[i], distances[i], terrain)
+        offsets.append(_join_offset(points, i, realized_half))
 
     for i in range(points.size() - 1):
-        var a := points[i]
-        var b := points[i + 1]
-        var a_offset: Vector2 = offsets[i]
-        var b_offset: Vector2 = offsets[i + 1]
-        var a_l := _edge_point(a, a_offset, terrain)
-        var a_r := _edge_point(a, -a_offset, terrain)
-        var b_l := _edge_point(b, b_offset, terrain)
-        var b_r := _edge_point(b, -b_offset, terrain)
-        # Godot treats clockwise winding as front-facing. On the XZ plane these
-        # orders face upward while preserving UP as the lighting normal.
-        _triangle(st, a_l, b_r, b_l, Vector2(0, 0), Vector2(1, 1), Vector2(0, 1), terrain)
-        _triangle(st, a_l, a_r, b_r, Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), terrain)
+        var v_a := distances[i] / 5.0
+        var v_b := distances[i + 1] / 5.0
+        for band in range(CROSS_SECTION.size() - 1):
+            var lateral_0: float = CROSS_SECTION[band]
+            var lateral_1: float = CROSS_SECTION[band + 1]
+            var a_0 := _cross_section_point(points[i], offsets[i], lateral_0, terrain)
+            var a_1 := _cross_section_point(points[i], offsets[i], lateral_1, terrain)
+            var b_0 := _cross_section_point(points[i + 1], offsets[i + 1], lateral_0, terrain)
+            var b_1 := _cross_section_point(points[i + 1], offsets[i + 1], lateral_1, terrain)
+            var u_0 := (lateral_0 + 1.0) * 0.5
+            var u_1 := (lateral_1 + 1.0) * 0.5
+            # Godot treats clockwise winding as front-facing. These triangles
+            # face upward while the five-point section supplies a subtle crown
+            # and enough lateral resolution for worn center/shoulder shading.
+            _triangle(st, a_0, b_1, b_0, Vector2(u_0, v_a), Vector2(u_1, v_b), Vector2(u_0, v_b), terrain)
+            _triangle(st, a_0, a_1, b_1, Vector2(u_0, v_a), Vector2(u_1, v_a), Vector2(u_1, v_b), terrain)
     return st.commit()
+
+func _width_scale(point: Vector3, distance: float, terrain: Resource) -> float:
+    var profile_scale := COASTAL_WIDTH_SCALE
+    if terrain != null:
+        var weights: Color = terrain.sample_region_weights(Vector2(point.x, point.z))
+        var total := weights.r + weights.g + weights.b
+        if total > 0.0001:
+            profile_scale = (
+                weights.r * COASTAL_WIDTH_SCALE
+                + weights.g * RESEARCH_WIDTH_SCALE
+                + weights.b * SNOW_WIDTH_SCALE
+            ) / total
+    # Two low-frequency waves keep the silhouette organic without making the
+    # route width flicker between adjacent terrain-conforming samples.
+    var edge_variation := (
+        sin(distance * 0.071 + point.x * 0.013) * 0.045
+        + sin(distance * 0.173 + point.z * 0.019 + 1.7) * 0.025
+    )
+    return clampf(profile_scale + edge_variation, 0.80, 1.02)
+
+func _cross_section_point(
+    center: Vector3,
+    full_offset: Vector2,
+    lateral: float,
+    terrain: Resource
+) -> Vector3:
+    var result := _edge_point(center, full_offset * -lateral, terrain)
+    var crown := PATH_CROWN_HEIGHT_M * (1.0 - pow(absf(lateral), 1.55))
+    result.y += crown
+    return result
 
 func _join_offset(points: PackedVector3Array, index: int, half_width: float) -> Vector2:
     if index == 0:
@@ -137,10 +185,12 @@ func _vertex(
 ) -> void:
     st.set_normal(normal)
     st.set_uv(uv)
-    st.set_color(_path_color_at(p, terrain))
+    var region_weights := _region_weights_at(p, terrain)
+    st.set_color(_path_color_for_weights(region_weights))
+    st.set_custom(0, region_weights)
     st.add_vertex(p)
 
-func _path_color_at(point: Vector3, terrain: Resource) -> Color:
+func _region_weights_at(point: Vector3, terrain: Resource) -> Color:
     var weights := Color(1.0, 0.0, 0.0, 0.0)
     if terrain != null:
         weights = terrain.sample_region_weights(Vector2(point.x, point.z))
@@ -149,6 +199,9 @@ func _path_color_at(point: Vector3, terrain: Resource) -> Color:
         weights.r /= total
         weights.g /= total
         weights.b /= total
+    return weights
+
+func _path_color_for_weights(weights: Color) -> Color:
     var coastal: Color = region_profiles.get_profile("coastal_forest").path_style.color
     var research: Color = region_profiles.get_profile("research_base").path_style.color
     var snow: Color = region_profiles.get_profile("snow_forest").path_style.color
@@ -165,23 +218,58 @@ shader_type spatial;
 render_mode cull_back, depth_draw_opaque;
 
 varying vec3 world_position;
+varying vec3 region_weights;
 
 float path_noise(vec2 p) {
     return fract(sin(dot(floor(p), vec2(12.9898, 78.233))) * 43758.5453);
 }
 
+float smooth_path_noise(vec2 p) {
+    vec2 cell = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = path_noise(cell);
+    float b = path_noise(cell + vec2(1.0, 0.0));
+    float c = path_noise(cell + vec2(0.0, 1.0));
+    float d = path_noise(cell + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 void vertex() {
     world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+    region_weights = CUSTOM0.rgb;
 }
 
 void fragment() {
-    float grain = path_noise(world_position.xz * 1.7);
-    float edge = smoothstep(0.58, 1.0, abs(UV.x * 2.0 - 1.0));
-    vec3 surface = COLOR.rgb * mix(0.91, 1.07, grain);
-    surface *= mix(1.0, 0.82, edge);
+    float lateral = abs(UV.x * 2.0 - 1.0);
+    float coarse = smooth_path_noise(world_position.xz * 0.33);
+    float grain = path_noise(world_position.xz * 3.4);
+    float aggregate = path_noise(world_position.xz * 8.5 + vec2(19.7, 6.3));
+    float broken_edge = 0.925 + (coarse - 0.5) * 0.12;
+    float edge_coverage = 1.0 - smoothstep(0.82, broken_edge, lateral);
+    float edge_dither = smooth_path_noise(world_position.xz * 2.7 + vec2(3.1, 27.4));
+    if (edge_dither > edge_coverage) {
+        discard;
+    }
+    float shoulder = smoothstep(0.66, 0.98, lateral);
+    float center_wear = 1.0 - smoothstep(0.0, 0.58, lateral);
+    float wheel_tracks = exp(-pow((lateral - 0.43) / 0.13, 2.0));
+    float longitudinal_wear = 0.5 + 0.5 * sin(UV.y * 2.7 + coarse * 4.0);
+    float coastal = region_weights.r;
+    float research = region_weights.g;
+    float snow = region_weights.b;
+    vec3 surface = COLOR.rgb;
+    surface *= mix(0.88, 1.08, coarse);
+    surface *= mix(0.94, 1.04, grain);
+    surface *= mix(1.0, 0.76, shoulder);
+    surface *= mix(1.0, 0.90, wheel_tracks * (research * 0.85 + snow * 0.62));
+    surface *= mix(0.94, 1.035, center_wear * longitudinal_wear * coastal);
+    float gravel_fleck = smoothstep(0.88, 1.0, aggregate) * research;
+    float snow_scuff = smoothstep(0.64, 0.98, grain) * wheel_tracks * snow;
+    surface += vec3(gravel_fleck * 0.075 + snow_scuff * 0.035);
     ALBEDO = surface;
-    ROUGHNESS = 0.96;
-    SPECULAR = 0.07;
+    ROUGHNESS = clamp(mix(0.90, 0.99, shoulder) + gravel_fleck * 0.025, 0.0, 1.0);
+    SPECULAR = mix(0.10, 0.035, shoulder);
 }
 """
     _path_material_cache = ShaderMaterial.new()

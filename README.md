@@ -10,16 +10,16 @@ A GDScript-first Godot 4.7 project implementing the architecture baseline:
 2. Open `project.godot` in Godot 4.7.x.
 3. Let Godot import resources.
 4. Press **F6/F5** (run project).
-5. The fake compiler automatically generates the OwenG semantic-baseline demo.
+5. The game opens on a non-semantic, completely flat grass canvas. The first successful prompt replaces it with the resolved OwenG world. Enable `auto_generate_demo` on `WorldCoordinator` to generate the fixed demo automatically instead.
 6. Move with **WASD or arrow keys**, look with mouse, `Esc` releases mouse.
 
 No external OwenG checkout or LLM server is required for the first run. Reusable OwenG art is namespaced under `assets/oweng/` and the active owner-aware policies use those local models and PBR ground textures.
 
 ## Demo edit flow
 
-The top-left panel drives the same compile boundary that the real server will use.
+The compact translucent prompt card at the bottom left drives the same compile boundary that the real server will use. Before running, select `Main/UI/PromptPanel` in the Godot Editor and toggle the exported `Debug Mode` property. It defaults on; when off, the card collapses to the prompt row and only surfaces failed requests as `IR GAP`.
 
-- The initial fake compile returns the complete `coastal_forest`, `research_base`, and `snow_forest` fixture with one explicit path and Region-owned Entity/Distribution objects.
+- The first fake compile returns the complete `coastal_forest`, `research_base`, and `snow_forest` fixture with one explicit path and Region-owned Entity/Distribution objects; failed compilation leaves the initial grass canvas untouched.
 - Prompt `雪林里的石头少一点` (or an English equivalent containing “snow”, “rock”, and “less/fewer”) to change `snow_rocks` from high to medium density.
 - Prompt `海岸森林的树多一点` (or an English equivalent containing “coastal”, “tree”, and “more”) to raise `coastal_trees` to high density.
 - Other subsequent prompts echo the current IR, keeping the no-op Scene Diff / Transition path testable.
@@ -58,7 +58,7 @@ The OwenG-aligned policies use migrated tree, grass, shrub, rock, prop, vehicle,
 
 Implemented:
 
-- Strict World IR V2 / Runtime Context V1 / CompileResult V1 contract validation at the Compiler boundary.
+- Strict World IR V2 / World Catalog V2 / Runtime Context V1 / CompileResult V1 contract validation at the Compiler boundary.
 - World IR V2 root primitives: Region / Network / Entity / Distribution.
 - Region anchor lowering to concrete polygons.
 - A single Region with no anchor or relations falls back to the full playable-world domain; multi-Region worlds keep normal constrained lowering.
@@ -71,7 +71,7 @@ Implemented:
 - One continuous 129×129 terrain blends gentle coastal relief, a controlled research-base grade, and rolling snow-forest terrain from final Region claim polygons.
 - Normalized polygon-distance weights drive one continuous surface shader that blends OwenG CC0 grass, dirt, white-sand, and gray-gravel PBR albedo/normal/roughness textures without hard polygon color fills.
 - One continuous Path ribbon samples the same weights per vertex, transitioning from forest dirt through industrial gravel to compacted snow.
-- The single Sun and WorldEnvironment blend profile lighting/fog from player position; one player-following snowfall emitter fades with snow-forest influence.
+- The single Sun and WorldEnvironment blend profile lighting/fog from player position; one shared dynamic sky shader continuously blends sky color, procedural cloud coverage, cloud tone, and wind across Regions, while one player-following snowfall emitter fades with snow-forest influence.
 - Prototype-aware Entity placement.
 - Distribution `count` / TSCN-footprint and usable-area-scaled qualitative `density` / `density_profile.gradient` weighted lowering.
 - Explicit Distribution arrangements remain authoritative.

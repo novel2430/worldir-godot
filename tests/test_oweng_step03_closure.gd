@@ -1,14 +1,21 @@
 extends SceneTree
 
 const REGION_TYPES := ["coastal_forest", "research_base", "snow_forest"]
-const DISTRIBUTION_TYPES := ["tree", "grass", "shrub", "rock"]
+const DISTRIBUTION_POLICY := {
+    "tree": ["coastal_forest", "research_base", "snow_forest"],
+    "grass": ["coastal_forest", "research_base"],
+    "shrub": ["coastal_forest", "research_base", "snow_forest"],
+    "rock": ["coastal_forest", "research_base", "snow_forest"],
+    "fallen_log": ["coastal_forest"],
+}
 const ENTITY_POLICY := {
     "rowboat": ["coastal_forest"],
     "tent": ["coastal_forest"],
     "cabin": ["coastal_forest", "snow_forest"],
     "research_station": ["research_base"],
     "radar_tower": ["research_base"],
-    "warning_sign": ["research_base"],
+    "radiation_warning_sign": ["research_base"],
+    "tidal_danger_sign": ["research_base"],
     "cargo_truck": ["research_base"],
     "crate": ["research_base"],
     "maritime_memorial": ["snow_forest"],
@@ -17,7 +24,9 @@ const ENTITY_POLICY := {
     "concrete_wall": ["snow_forest"],
 }
 const EDIT_CONFIG := {
-    "population_caps": {"tree": 36, "grass": 48, "shrub": 36, "rock": 42},
+    "population_caps": {
+        "tree": 36, "grass": 48, "shrub": 36, "rock": 42, "fallen_log": 24
+    },
     "density_spacing_multipliers": {"low": 3.0, "medium": 2.0, "high": 0.45},
 }
 
@@ -30,6 +39,7 @@ func _run() -> void:
     catalog = PrototypeCatalog.new()
     root.add_child(catalog)
     _test_complete_owner_aware_policy()
+    _test_server_catalog_v2_response()
     _test_scale_collision_and_dense_forest()
     await _test_stable_population_edits()
     await _test_region_type_edit()
@@ -39,11 +49,25 @@ func _run() -> void:
     print("OwenG Step 03 closure tests passed")
     quit(0)
 
+func _test_server_catalog_v2_response() -> void:
+    var response := _load_fixture("res://data/fixtures/server_catalog_v2_initial.json")
+    var resolved := WorldBackend.new().lower(response.world_ir, catalog, 1337)
+    assert(resolved.errors.is_empty(), " | ".join(resolved.errors))
+    assert(resolved.entities.size() == response.world_ir.entities.size())
+    assert(resolved.distributions.size() == response.world_ir.distributions.size())
+    var tidal := resolved.find_entity("research_base_south_tidal_danger_sign")
+    assert(tidal != null)
+    assert(tidal.prototype_id == "oweng_tidal_danger_sign")
+
 func _test_complete_owner_aware_policy() -> void:
-    for region_type in REGION_TYPES:
-        for semantic_type in DISTRIBUTION_TYPES:
+    for semantic_type in DISTRIBUTION_POLICY:
+        for region_type in REGION_TYPES:
             var options := catalog.get_prototype_ids(semantic_type, region_type)
-            assert(not options.is_empty(), "Missing policy for (%s, %s)" % [semantic_type, region_type])
+            var should_support: bool = region_type in DISTRIBUTION_POLICY[semantic_type]
+            assert(
+                not options.is_empty() if should_support else options.is_empty(),
+                "Distribution policy mismatch for (%s, %s)" % [semantic_type, region_type]
+            )
             for prototype_id in options:
                 var metadata := catalog.get_metadata(prototype_id)
                 assert(String(metadata.semantic_type) == semantic_type)
@@ -53,8 +77,12 @@ func _test_complete_owner_aware_policy() -> void:
                 assert((metadata.visual_footprint as Vector2).x > 0.0)
                 assert((metadata.visual_footprint as Vector2).y > 0.0)
     for semantic_type in ENTITY_POLICY.keys():
-        for region_type in ENTITY_POLICY[semantic_type]:
-            assert(catalog.has_semantic_type(semantic_type, region_type))
+        for region_type in REGION_TYPES:
+            var should_support: bool = region_type in ENTITY_POLICY[semantic_type]
+            assert(
+                catalog.has_semantic_type(semantic_type, region_type) == should_support,
+                "Entity policy mismatch for (%s, %s)" % [semantic_type, region_type]
+            )
     assert(not catalog.has_semantic_type("rowboat", "research_base"))
     assert(catalog.get_prototype_ids("cabin", "coastal_forest") != catalog.get_prototype_ids("cabin", "snow_forest"))
 

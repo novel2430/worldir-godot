@@ -14,7 +14,8 @@ const ENTITY_TYPES := [
     "cabin",
     "research_station",
     "radar_tower",
-    "warning_sign",
+    "radiation_warning_sign",
+    "tidal_danger_sign",
     "cargo_truck",
     "crate",
     "maritime_memorial",
@@ -22,7 +23,29 @@ const ENTITY_TYPES := [
     "bunker",
     "concrete_wall",
 ]
-const DISTRIBUTION_TYPES := ["tree", "grass", "shrub", "rock"]
+const DISTRIBUTION_TYPES := ["tree", "grass", "shrub", "rock", "fallen_log"]
+const ENTITY_ALLOWED_REGIONS := {
+    "rowboat": ["coastal_forest"],
+    "tent": ["coastal_forest"],
+    "cabin": ["coastal_forest", "snow_forest"],
+    "research_station": ["research_base"],
+    "radar_tower": ["research_base"],
+    "radiation_warning_sign": ["research_base"],
+    "tidal_danger_sign": ["research_base"],
+    "cargo_truck": ["research_base"],
+    "crate": ["research_base"],
+    "maritime_memorial": ["snow_forest"],
+    "ruined_archway": ["snow_forest"],
+    "bunker": ["snow_forest"],
+    "concrete_wall": ["snow_forest"],
+}
+const DISTRIBUTION_ALLOWED_REGIONS := {
+    "tree": ["coastal_forest", "research_base", "snow_forest"],
+    "grass": ["coastal_forest", "research_base"],
+    "shrub": ["coastal_forest", "research_base", "snow_forest"],
+    "rock": ["coastal_forest", "research_base", "snow_forest"],
+    "fallen_log": ["coastal_forest"],
+}
 const DENSITIES := ["low", "medium", "high"]
 const ARRANGEMENTS := ["uniform", "random", "clustered"]
 const SELECTOR_TYPES := ["anchor", "near", "far_from", "direction_of"]
@@ -134,9 +157,21 @@ func validate_world_ir(world_ir: Dictionary) -> PackedStringArray:
     for index in range(world_ir["networks"].size()):
         _validate_network(world_ir["networks"][index], "networks[%d]" % index, id_kinds, errors)
     for index in range(world_ir["entities"].size()):
-        _validate_entity(world_ir["entities"][index], "entities[%d]" % index, id_kinds, errors)
+        _validate_entity(
+            world_ir["entities"][index],
+            "entities[%d]" % index,
+            id_kinds,
+            id_objects,
+            errors
+        )
     for index in range(world_ir["distributions"].size()):
-        _validate_distribution(world_ir["distributions"][index], "distributions[%d]" % index, id_kinds, errors)
+        _validate_distribution(
+            world_ir["distributions"][index],
+            "distributions[%d]" % index,
+            id_kinds,
+            id_objects,
+            errors
+        )
     return errors
 
 func _index_collection(items: Array, kind: String, root_name: String, id_kinds: Dictionary, id_objects: Dictionary, errors: PackedStringArray) -> void:
@@ -166,7 +201,13 @@ func _validate_region(value: Variant, path: String, id_kinds: Dictionary, errors
     if item.has("placement"):
         _validate_placement(item["placement"], "region", path + ".placement", id_kinds, errors)
 
-func _validate_entity(value: Variant, path: String, id_kinds: Dictionary, errors: PackedStringArray) -> void:
+func _validate_entity(
+    value: Variant,
+    path: String,
+    id_kinds: Dictionary,
+    id_objects: Dictionary,
+    errors: PackedStringArray
+) -> void:
     if typeof(value) != TYPE_DICTIONARY:
         return
     var item: Dictionary = value
@@ -176,6 +217,9 @@ func _validate_entity(value: Variant, path: String, id_kinds: Dictionary, errors
     if item.has("placement"):
         _validate_placement(item["placement"], "entity", path + ".placement", id_kinds, errors)
         _validate_owner_inside(item["placement"], path + ".placement", id_kinds, errors)
+        _validate_owner_compatibility(
+            item, path, id_objects, ENTITY_ALLOWED_REGIONS, errors
+        )
 
 func _validate_network(value: Variant, path: String, id_kinds: Dictionary, errors: PackedStringArray) -> void:
     if typeof(value) != TYPE_DICTIONARY:
@@ -188,7 +232,13 @@ func _validate_network(value: Variant, path: String, id_kinds: Dictionary, error
     if item.has("placement"):
         _validate_placement(item["placement"], "network", path + ".placement", id_kinds, errors)
 
-func _validate_distribution(value: Variant, path: String, id_kinds: Dictionary, errors: PackedStringArray) -> void:
+func _validate_distribution(
+    value: Variant,
+    path: String,
+    id_kinds: Dictionary,
+    id_objects: Dictionary,
+    errors: PackedStringArray
+) -> void:
     if typeof(value) != TYPE_DICTIONARY:
         return
     var item: Dictionary = value
@@ -198,6 +248,9 @@ func _validate_distribution(value: Variant, path: String, id_kinds: Dictionary, 
     if item.has("placement"):
         _validate_placement(item["placement"], "distribution", path + ".placement", id_kinds, errors)
         _validate_owner_inside(item["placement"], path + ".placement", id_kinds, errors)
+        _validate_owner_compatibility(
+            item, path, id_objects, DISTRIBUTION_ALLOWED_REGIONS, errors
+        )
     if item.has("population"):
         _validate_population(item["population"], path + ".population", id_kinds, errors)
 
@@ -301,6 +354,32 @@ func _validate_owner_inside(
     var target := inside_targets[0]
     if String(id_kinds.get(target, "")) != "region":
         errors.append("%s owner inside target '%s' must be a Region" % [path, target])
+
+func _validate_owner_compatibility(
+    item: Dictionary,
+    path: String,
+    id_objects: Dictionary,
+    allowed_regions: Dictionary,
+    errors: PackedStringArray
+) -> void:
+    var semantic_type := String(item.get("type", ""))
+    if not allowed_regions.has(semantic_type):
+        return
+    var inside_targets: Array[String] = []
+    for relation: Dictionary in item.get("placement", {}).get("relations", []):
+        if String(relation.get("type", "")) == "inside":
+            inside_targets.append(String(relation.get("target", "")))
+    if inside_targets.size() != 1:
+        return
+    var owner: Variant = id_objects.get(inside_targets[0])
+    if typeof(owner) != TYPE_DICTIONARY:
+        return
+    var owner_region_type := String((owner as Dictionary).get("type", ""))
+    if not (owner_region_type in (allowed_regions[semantic_type] as Array)):
+        errors.append(
+            "%s.type '%s' is not allowed inside Region type '%s' by World Catalog V2"
+            % [path, semantic_type, owner_region_type]
+        )
 
 func _validate_population(value: Variant, path: String, id_kinds: Dictionary, errors: PackedStringArray) -> void:
     if typeof(value) != TYPE_DICTIONARY:
@@ -525,7 +604,7 @@ func _is_nonnegative_json_integer(value: Variant) -> bool:
 
 func _validate_catalog_type(value: Variant, allowed: Array, path: String, kind: String, errors: PackedStringArray) -> void:
     if typeof(value) != TYPE_STRING or not (String(value) in allowed):
-        errors.append("%s must be a World Catalog V1 %s type" % [path, kind])
+        errors.append("%s must be a World Catalog V2 %s type" % [path, kind])
 
 func _validate_nonempty_string(value: Variant, path: String, errors: PackedStringArray) -> void:
     if typeof(value) != TYPE_STRING or String(value).strip_edges().is_empty():

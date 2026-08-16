@@ -2,7 +2,7 @@ class_name HttpCompilerClient
 extends CompilerClient
 
 const WORLD_IR_VERSION := "2"
-const WORLD_CATALOG_VERSION := "1"
+const WORLD_CATALOG_VERSION := "2"
 const RUNTIME_CONTEXT_VERSION := "1"
 const COMPILE_RESULT_VERSION := "1"
 

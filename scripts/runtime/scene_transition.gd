@@ -12,6 +12,7 @@ const RIPPLE_DURATION := 0.82
 const STAGGER_WINDOW := 0.34
 const TERRAIN_SWAP_DELAY := 0.34
 const COMPLETE_PADDING := 0.08
+const INITIAL_REVEAL_DURATION := 0.78
 
 const VEGETATION_TYPES := ["tree", "grass", "shrub"]
 const BUILDING_TYPES := [
@@ -20,6 +21,33 @@ const BUILDING_TYPES := [
 
 var duration_scale := 1.0
 var last_patch_summary: Dictionary = {}
+
+func reveal_initial_world(initial_canvas: Node3D, generated_world: Node3D) -> void:
+    if initial_canvas == null or generated_world == null:
+        return
+    initial_canvas.set_meta("reveal_out_started", true)
+    _set_visual_transparency(generated_world, 1.0)
+    _set_collision_enabled(initial_canvas, false)
+
+    var reveal := generated_world.create_tween().set_parallel(true)
+    _tween_visual_transparency(
+        reveal,
+        generated_world,
+        0.0,
+        INITIAL_REVEAL_DURATION * duration_scale,
+        0.04 * duration_scale
+    )
+    var fade := initial_canvas.create_tween().set_parallel(true)
+    _tween_visual_transparency(
+        fade,
+        initial_canvas,
+        1.0,
+        INITIAL_REVEAL_DURATION * 0.72 * duration_scale,
+        0.12 * duration_scale
+    )
+    var cleanup := initial_canvas.create_tween()
+    cleanup.tween_interval(INITIAL_REVEAL_DURATION * duration_scale + 0.06)
+    cleanup.tween_callback(initial_canvas.queue_free)
 
 func apply(
     active_root: Node3D,

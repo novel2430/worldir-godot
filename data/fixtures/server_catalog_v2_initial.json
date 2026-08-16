@@ -1,0 +1,41 @@
+{
+  "status": "ok",
+  "world_ir": {
+    "regions": [
+      {"id":"coastal_forest_west","type":"coastal_forest","placement":{"anchor":"west"}},
+      {"id":"snow_forest_east","type":"snow_forest","placement":{"anchor":"east"}},
+      {"id":"research_base_south","type":"research_base","placement":{"anchor":"south"}}
+    ],
+    "networks": [],
+    "entities": [
+      {"id":"coastal_forest_west_rowboat","type":"rowboat","placement":{"relations":[{"type":"inside","target":"coastal_forest_west"}]}},
+      {"id":"snow_forest_east_cabin","type":"cabin","placement":{"relations":[{"type":"inside","target":"snow_forest_east"}]}},
+      {"id":"snow_forest_east_ruined_archway","type":"ruined_archway","placement":{"relations":[{"type":"inside","target":"snow_forest_east"}]}},
+      {"id":"research_base_south_research_station","type":"research_station","placement":{"relations":[{"type":"inside","target":"research_base_south"}]}},
+      {"id":"research_base_south_radar_tower","type":"radar_tower","placement":{"relations":[{"type":"inside","target":"research_base_south"}]}},
+      {"id":"research_base_south_cargo_truck","type":"cargo_truck","placement":{"relations":[{"type":"inside","target":"research_base_south"}]}},
+      {"id":"research_base_south_tidal_danger_sign","type":"tidal_danger_sign","placement":{"relations":[{"type":"inside","target":"research_base_south"}]}},
+      {"id":"research_base_south_crate","type":"crate","placement":{"relations":[{"type":"inside","target":"research_base_south"}]}}
+    ],
+    "distributions": [
+      {"id":"coastal_forest_west_tree","type":"tree","placement":{"relations":[{"type":"inside","target":"coastal_forest_west"}]},"population":{"amount":{"mode":"density","value":"high"}}},
+      {"id":"coastal_forest_west_grass","type":"grass","placement":{"relations":[{"type":"inside","target":"coastal_forest_west"}]},"population":{"amount":{"mode":"density","value":"high"}}},
+      {"id":"coastal_forest_west_shrub","type":"shrub","placement":{"relations":[{"type":"inside","target":"coastal_forest_west"}]},"population":{"amount":{"mode":"density","value":"medium"}}},
+      {"id":"coastal_forest_west_rock","type":"rock","placement":{"relations":[{"type":"inside","target":"coastal_forest_west"}]},"population":{"amount":{"mode":"density","value":"low"}}},
+      {"id":"snow_forest_east_tree","type":"tree","placement":{"relations":[{"type":"inside","target":"snow_forest_east"}]},"population":{"amount":{"mode":"density","value":"medium"}}},
+      {"id":"snow_forest_east_shrub","type":"shrub","placement":{"relations":[{"type":"inside","target":"snow_forest_east"}]},"population":{"amount":{"mode":"density","value":"low"}}},
+      {"id":"snow_forest_east_rock","type":"rock","placement":{"relations":[{"type":"inside","target":"snow_forest_east"}]},"population":{"amount":{"mode":"density","value":"high"}}},
+      {"id":"research_base_south_tree","type":"tree","placement":{"relations":[{"type":"inside","target":"research_base_south"}]},"population":{"amount":{"mode":"density","value":"low"}}},
+      {"id":"research_base_south_grass","type":"grass","placement":{"relations":[{"type":"inside","target":"research_base_south"}]},"population":{"amount":{"mode":"density","value":"low"}}},
+      {"id":"research_base_south_shrub","type":"shrub","placement":{"relations":[{"type":"inside","target":"research_base_south"}]},"population":{"amount":{"mode":"density","value":"low"}}},
+      {"id":"research_base_south_rock","type":"rock","placement":{"relations":[{"type":"inside","target":"research_base_south"}]},"population":{"amount":{"mode":"density","value":"medium"}}}
+    ]
+  },
+  "runtime_bindings": [],
+  "runtime_fact_ops": [],
+  "meta": {
+    "request_id": "catalog_v2_server_regression",
+    "mode": "edit",
+    "route": "bypass"
+  }
+}

@@ -6,6 +6,11 @@ func _init() -> void:
     var validator := ContractValidatorScript.new()
     var fixture := _load_json("res://data/fixtures/oweng_semantic_baseline.json")
     _expect_valid("OwenG baseline", validator.validate_compile_result(fixture, {"version": "1", "facts": []}))
+    var server_v2 := _load_json("res://data/fixtures/server_catalog_v2_initial.json")
+    _expect_valid(
+        "actual Server World Catalog V2 response",
+        validator.validate_compile_result(server_v2, {"version": "1", "facts": []})
+    )
 
     var vocabulary := _catalog_world()
     _expect_valid("active OwenG vocabulary", validator.validate_world_ir(vocabulary))
@@ -36,6 +41,14 @@ func _init() -> void:
     }
     _expect_invalid("Region nesting", validator.validate_world_ir(nested_region))
 
+    var legacy_warning: Dictionary = vocabulary.duplicate(true)
+    legacy_warning.entities[5].type = "warning_sign"
+    _expect_invalid("World Catalog V1 warning_sign", validator.validate_world_ir(legacy_warning))
+
+    var snow_grass: Dictionary = vocabulary.duplicate(true)
+    snow_grass.distributions[1].placement.relations[0].target = "r_snow"
+    _expect_invalid("grass inside snow_forest", validator.validate_world_ir(snow_grass))
+
     _test_http_info_versions()
     print("WorldIR OwenG contract validation tests passed")
     quit(0)
@@ -47,18 +60,33 @@ func _catalog_world() -> Dictionary:
         {"id": "r_snow", "type": "snow_forest", "placement": {"anchor": "east"}},
     ]
     var entities: Array = []
-    var entity_types := [
-        "rowboat", "tent", "cabin", "research_station", "radar_tower", "warning_sign",
-        "cargo_truck", "crate", "maritime_memorial", "ruined_archway", "bunker", "concrete_wall",
-    ]
+    var entity_owners := {
+        "rowboat": "r_coastal",
+        "tent": "r_coastal",
+        "cabin": "r_coastal",
+        "research_station": "r_base",
+        "radar_tower": "r_base",
+        "radiation_warning_sign": "r_base",
+        "tidal_danger_sign": "r_base",
+        "cargo_truck": "r_base",
+        "crate": "r_base",
+        "maritime_memorial": "r_snow",
+        "ruined_archway": "r_snow",
+        "bunker": "r_snow",
+        "concrete_wall": "r_snow",
+    }
+    var entity_types: Array = entity_owners.keys()
     for index in range(entity_types.size()):
+        var semantic_type := String(entity_types[index])
         entities.append({
             "id": "entity_%d" % index,
-            "type": entity_types[index],
-            "placement": {"relations": [{"type": "inside", "target": "r_base"}]},
+            "type": semantic_type,
+            "placement": {"relations": [{
+                "type": "inside", "target": String(entity_owners[semantic_type])
+            }]},
         })
     var distributions: Array = []
-    for semantic_type in ["tree", "grass", "shrub", "rock"]:
+    for semantic_type in ["tree", "grass", "shrub", "rock", "fallen_log"]:
         distributions.append({
             "id": "distribution_%s" % semantic_type,
             "type": semantic_type,
@@ -76,13 +104,13 @@ func _test_http_info_versions() -> void:
     var client := HttpCompilerClient.new()
     var compatible_info := {
         "world_ir_version": "2",
-        "world_catalog_version": "1",
+        "world_catalog_version": "2",
         "runtime_context_version": "1",
         "compile_result_version": "1",
     }
     assert(client._is_info_compatible(compatible_info))
     var mismatch: Dictionary = compatible_info.duplicate(true)
-    mismatch.world_catalog_version = "2"
+    mismatch.world_catalog_version = "1"
     assert(not client._is_info_compatible(mismatch))
     client.free()
 

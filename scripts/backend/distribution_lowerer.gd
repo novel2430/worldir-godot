@@ -7,7 +7,9 @@ const DEFAULT_POPULATION_BUDGET := 12
 const USABLE_AREA_GRID_SIZE := 36
 const RANDOM_PACKING_LOSS := 1.2
 const DENSITY_SPACING_MULTIPLIERS := {"low": 1.6, "medium": 0.85, "high": 0.18}
-const POPULATION_CAPS := {"tree": 140, "grass": 220, "shrub": 140, "rock": 90}
+const POPULATION_CAPS := {
+	"tree": 140, "grass": 220, "shrub": 140, "rock": 90, "fallen_log": 70
+}
 const DEFAULT_POPULATION_CAP := 100
 const DENSITY_WEIGHTS := {"low": 0.20, "medium": 0.55, "high": 1.0}
 const WEIGHTED_ATTEMPTS := 24
@@ -199,7 +201,11 @@ func _resolve_count(
 		* random_packing_loss
 	)
 	var population_cap := int(population_caps.get(semantic_type, DEFAULT_POPULATION_CAP))
-	return clampi(int(round(usable_area / area_per_instance)), 1, population_cap)
+	# Keep density edits meaningful even in large regions where every estimate would
+	# otherwise saturate the same semantic population cap.
+	var density_cap_weight := float(DENSITY_WEIGHTS.get(density, DENSITY_WEIGHTS["medium"]))
+	var density_cap := maxi(1, int(round(float(population_cap) * density_cap_weight)))
+	return clampi(int(round(usable_area / area_per_instance)), 1, density_cap)
 
 func _estimate_usable_area(
 	domain: Rect2,
